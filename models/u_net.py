@@ -3,12 +3,14 @@ import numpy as np
 import torch.nn as nn
 from torch.nn import Sequential
 
-
+# ┌───────────────────────────────────────────────┐
+# │               NETWORK DEFINITION              │
+# └───────────────────────────────────────────────┘
 class UNet(nn.Module):
     """
     Definition of a simple implementation of a UNet for Diffusion & Consistency Models.
     """
-    def __init__(self, in_channels: int, out_channels: int, time_embedding_dim: int):
+    def __init__(self, in_channels: int = 1, out_channels: int = 1, time_embedding_dim: int = 64):
         """
         Constructor for the UNet Class.
 
@@ -19,16 +21,20 @@ class UNet(nn.Module):
         """
         super().__init__()
 
+        self.time_embedding_dim = time_embedding_dim
+
         self.dconv_down1 = double_conv(in_channels + time_embedding_dim, 64)
         self.dconv_down2 = double_conv(64, 128)
         self.dconv_down3 = double_conv(128, 256)
         self.dconv_down4 = double_conv(256, 512)
 
         self.maxpool = nn.MaxPool2d(2)
+
+        # TODO: Look into using mode = 'nearest' later
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
-        self.dconv_up3 = double_conv(832, 256)
-        self.dconv_up2 = double_conv(128 + 256, 128)
+        self.dconv_up3 = double_conv(512 + time_embedding_dim + 256, 256)
+        self.dconv_up2 = double_conv(256 + 128, 128)
         self.dconv_up1 = double_conv(128 + 64, 64)
 
         self.conv_last = nn.Conv2d(64, out_channels, 1)
@@ -50,7 +56,7 @@ class UNet(nn.Module):
         # time_index shape: (N,)
 
         # Perform embedding of time using sinusoidal embedding
-        time_embedding = sinusoidal_embedding(time_step)           # (N, time_embedding_dim)
+        time_embedding = sinusoidal_embedding(time_step, self.time_embedding_dim)           # (N, time_embedding_dim)
         x = torch.cat(
             [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
@@ -78,7 +84,7 @@ class UNet(nn.Module):
         # ┌───────────────────────────────────────────────┐
         # │         BOTTLENECK WITH TIME EMBEDDING        │
         # └───────────────────────────────────────────────┘
-        # Add Time embedding as channel
+        # Add Time embedding as channel at bottleneck
         x = torch.cat(
             [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
@@ -109,7 +115,9 @@ class UNet(nn.Module):
         # Return the output of the forward pass
         return out  
 
-
+# ┌───────────────────────────────────────────────┐
+# │                HELPER METHODS                 │
+# └───────────────────────────────────────────────┘
 def sinusoidal_embedding(times: torch.Tensor, time_embedding_dim: int = 64, T: int = 1000) -> torch.Tensor:
     """
     Consumes a tensor representing timesteps and returns a tensor of sinusoidal embeddings.
@@ -152,7 +160,7 @@ def sinusoidal_embedding(times: torch.Tensor, time_embedding_dim: int = 64, T: i
 def double_conv(in_channels: int, out_channels: int) -> Sequential:
     """
     Return a Convolutional Block with Two Convolutional Layers with ReLU Activation based on in_channels and
-    out_channels, with a stride of 3 and padding of 1. If input has H and W, then output will have same H and W.
+    out_channels. Uses kernel_size = 3 and padding = 1 to preserve spatial dimensions.
 
     Args:
         in_channels (int): Represents number of input channels
