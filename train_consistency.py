@@ -45,8 +45,7 @@ def train(
     loss_history = []
 
     # Iterate num_epochs times
-    # TODO: Check if we need 0 index here, and how does it play out with calculating N
-    for epoch in range(1, num_epochs):
+    for epoch in range(num_epochs):
 
         # Curriculum Learning
         # Get N for this epoch (for Karras Schedule Calculations)
@@ -73,21 +72,21 @@ def train(
             t = torch.randint(0, N - 1, (batch_size,), device=DEVICE)   # (batch_size,)
 
             # Map time indices to sigma values
-            # current_sigma (t2) is higher noise
-            # next_sigma (t1) is lower noise (closer to 0)
-            current_sigma = karras_schedule[t].reshape(-1, 1, 1, 1)     # (batch_size, 1, 1, 1)
-            next_sigma = karras_schedule[t + 1].reshape(-1, 1, 1, 1)    # (batch_size, 1, 1, 1)
+            # sigma_t2 is higher noise
+            # sigma_t1 is lower noise (closer to 0)
+            sigmas_t2 = karras_schedule[t]                              # (batch_size,)
+            sigmas_t1 = karras_schedule[t + 1]                          # (batch_size,)
 
             # Online Model Forward Pass (High Noise -> Clean)
-            # Add noise to x based on current_sigma
-            z_current_sigma = x + z * current_sigma
-            online_output = online_model(z_current_sigma, current_sigma)
+            # Add noise to x based on sigmas_t2
+            z_t2 = x + z * sigmas_t2.reshape(-1, 1, 1, 1)
+            online_output = online_model(z_t2, sigmas_t2)
 
             # EMA Model Forward Pass (Low Noise -> Clean)
-            # Add noise to x based on next_sigma
+            # Add noise to x based on sigmas_t1
             with torch.no_grad():
-                z_next_sigma = x + z * next_sigma
-                ema_output = ema_model(z_next_sigma, next_sigma)
+                z_t1 = x + z * sigmas_t1.reshape(-1, 1, 1, 1)
+                ema_output = ema_model(z_t1, sigmas_t1)
 
             # Compute Consistency Loss (Online should match EMA)
             loss = F.mse_loss(online_output, ema_output)
@@ -101,7 +100,7 @@ def train(
             with torch.no_grad():
                 for online_params, ema_params in zip(online_model.parameters(), ema_model.parameters()):
                     # Mathematical equivalent: ema = mu * ema + (1-mu) * online
-                    ema_params.mul_(mu).add_(online_params, alpha=1 - mu)
+                    ema_params.mul_(mu).add_(online_params, alpha = 1 - mu)
 
             # Accumulate Loss for loss trajectory
             loss_history.append(loss.item())

@@ -90,13 +90,14 @@ class UNet(nn.Module):
             [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
         )                                                           # (N, 512 + time_embedding_dim, H/8, W/8)
-        x = self.upsample(x)                                        # (N, 512 + time_embedding_dim, H/4, W//4) --> Upsample doubles spatial dims
+        x = self.upsample(x)                                        # (N, 512 + time_embedding_dim, H/4, W//4)
 
 
         # ┌───────────────────────────────────────────────┐
         # │           DECODER BLOCKS (UPSAMPLING)         │
         # └───────────────────────────────────────────────┘
         # First Decoder Block
+        # TODO: x has shape (N, 576, 6, 6) here and conv3 has shape (N, 256, 7, 7)
         x = torch.cat([x, conv3], dim=1)                            # (N, 512 + time_embedding_dim + 256, H/4, W/4)
         x = self.dconv_up3(x)                                       # (N, 256, H/4, W/4)
         x = self.upsample(x)                                        # (N, 256, H/2, W/2)
