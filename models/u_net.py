@@ -3,6 +3,7 @@ import numpy as np
 import torch.nn as nn
 from torch.nn import Sequential
 
+# TODO: Fix the network as it does not work with Consistency Model Code
 # ┌───────────────────────────────────────────────┐
 # │               NETWORK DEFINITION              │
 # └───────────────────────────────────────────────┘

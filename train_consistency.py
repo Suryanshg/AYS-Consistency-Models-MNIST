@@ -6,6 +6,10 @@ import torch.nn.functional as F
 from datasets.mnist_dataloader import get_mnist_dataloader
 from models.u_net import UNet
 from typing import Tuple, List
+import math
+
+# NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
+# Lower "t" means low timestep, but also low noise levels.
 
 # ┌───────────────────────────────────────────────┐
 # │               TRAINING FUNCTION               │
@@ -15,10 +19,12 @@ def train(
         ema_model: nn.Module,
         dataloader: DataLoader,
         optimizer: torch.optim.Optimizer,
-        num_epochs: int = 10
+        num_epochs: int = 10,
+        initial_N: int = 2,
+        final_N: int = 150
         ) -> Tuple[nn.Module, List]:
     """
-    TODO:
+    TODO
 
     Args:
         online_model (nn.Module): _description_
@@ -26,6 +32,8 @@ def train(
         dataloader (DataLoader): _description_
         optimizer (torch.optim.Optimizer): _description_
         num_epochs (int, optional): _description_. Defaults to 10.
+        initial_N (int, optional): _description_. Defaults to 2.
+        final_N (int, optional): _description_. Defaults to 150.
 
     Returns:
         Tuple[nn.Module, List]: _description_
@@ -37,56 +45,68 @@ def train(
     loss_history = []
 
     # Iterate num_epochs times
-    for epoch in range(num_epochs):
+    # TODO: Check if we need 0 index here, and how does it play out with calculating N
+    for epoch in range(1, num_epochs):
 
-        # TODO: check what does these do and what is their significance with respect to the paper
-        # N = math.ceil(math.sqrt((epoch * (150**2 - 4) / num_epochs) + 4) - 1) + 1
-        # boundaries = kerras_boundaries(7.0, 0.002, N, 80.0).to(device)
+        # Curriculum Learning
+        # Get N for this epoch (for Karras Schedule Calculations)
+        N = get_N_for_karras_time_schedule(epoch, num_epochs, initial_N, final_N)
 
-        # Or can we keep N as a constant
-        N = 1000
+        # Compute the Karras time schedule
+        karras_schedule = get_karras_time_schedule(N).to(DEVICE)
 
-        # Variable to track loss computed used EMA
-        ema_loss = None
+        # Calculate EMA Decay Rate (mu) for this epoch
+        # As N grows (intervals get smaller), we want the EMA to update slower (higher mu).
+        # Formula: exp(initial_N * log(mu_0) / N)
+        mu = math.exp(initial_N * math.log(0.95) / N)
 
         # For each minibatch in the dataloader
         for x, _ in tqdm(dataloader):
             # Load x on device
-            x = x.to(DEVICE)
+            x = x.to(DEVICE)                                            # (batch_size, 1, H, W)
+            batch_size = x.shape[0]                                     
 
             # Sample a Standard Gaussian tensor like x
-            z = torch.randn_like(x)
+            z = torch.randn_like(x)                                     # (batch_size, 1, H, W)
             
-            # Sample a random timestep
-            t = torch.randint(0, N - 1, (x.shape[0], 1), device=DEVICE)
+            # Sample a batch of random time indices in interval [0, N-1)
+            t = torch.randint(0, N - 1, (batch_size,), device=DEVICE)   # (batch_size,)
 
-            # Get t_0 and t_1 from Kerras Boundaries
-            # t_0 = boundaries[t]
-            # t_1 = boundaries[t + 1]
+            # Map time indices to sigma values
+            # current_sigma (t2) is higher noise
+            # next_sigma (t1) is lower noise (closer to 0)
+            current_sigma = karras_schedule[t].reshape(-1, 1, 1, 1)     # (batch_size, 1, 1, 1)
+            next_sigma = karras_schedule[t + 1].reshape(-1, 1, 1, 1)    # (batch_size, 1, 1, 1)
 
-            # Calculate Online Loss
-            # online_loss = calculate_loss(online_model, ema_model, x, z, t_0, t_1)
+            # Online Model Forward Pass (High Noise -> Clean)
+            # Add noise to x based on current_sigma
+            z_current_sigma = x + z * current_sigma
+            online_output = online_model(z_current_sigma, current_sigma)
+
+            # EMA Model Forward Pass (Low Noise -> Clean)
+            # Add noise to x based on next_sigma
+            with torch.no_grad():
+                z_next_sigma = x + z * next_sigma
+                ema_output = ema_model(z_next_sigma, next_sigma)
+
+            # Compute Consistency Loss (Online should match EMA)
+            loss = F.mse_loss(online_output, ema_output)
 
             # Calculate Gradients, Perform Backpropagation, and update weights
             optimizer.zero_grad()
-            # online_loss.backward()
+            loss.backward()
             optimizer.step()
 
-            # Determine EMA Loss
-            # if ema_loss is None:
-            #     ema_loss = online_loss.item()
-            # else:
-            #     ema_loss = (0.9 * ema_loss) + (0.1 * online_loss.item())
+            # Update EMA Model Weights
+            with torch.no_grad():
+                for online_params, ema_params in zip(online_model.parameters(), ema_model.parameters()):
+                    # Mathematical equivalent: ema = mu * ema + (1-mu) * online
+                    ema_params.mul_(mu).add_(online_params, alpha=1 - mu)
 
-            # Update weights of EMA Model
-            # with torch.no_grad():
-            #     mu = math.exp(2 * math.log(0.95) / N)
-            #     for online_params, ema_params in zip(online_model.parameters(), ema_model.parameters()):
-            #         ema_params.mul_(mu).add_(online_params, alpha=1 - mu) # TODO: Can this be written simply than this?
+            # Accumulate Loss for loss trajectory
+            loss_history.append(loss.item())
 
         # TODO: Add Logging for every epoch
-        # TODO: Accumulate loss for trajectory viz
-
 
     # Return trained online model and loss history
     return online_model, loss_history
@@ -95,35 +115,62 @@ def train(
 # ┌───────────────────────────────────────────────┐
 # │               HELPER METHODS                  │
 # └───────────────────────────────────────────────┘
-# TODO: Understand what it does
-def calculate_loss(online_model: nn.Module,
-                   ema_model: nn.Module,
-                   x: torch.Tensor, 
-                   z: torch.Tensor, 
-                   t1: torch.Tensor, 
-                   t2: torch.Tensor) -> torch.Tensor:
+def get_N_for_karras_time_schedule(epoch: int, 
+                                   num_epochs: int, 
+                                   initial_N: int = 2, 
+                                   final_N: int = 150) -> int:
     """
-    TODO:
+    Calculates the discretization steps (N) for the current epoch using the 
+    curriculum schedule from the Consistency Models paper.
 
     Args:
-        online_model (nn.Module): _description_
-        ema_model (nn.Module): _description_
-        x (torch.Tensor): _description_
-        z (torch.Tensor): _description_
-        t1 (torch.Tensor): _description_
-        t2 (torch.Tensor): _description_
+        epoch (int): The current training epoch (usually should start from 1).
+        num_epochs (int): The total number of training epochs.
+        initial_N (int, optional): The starting value of N (usually 2). Defaults to 2.
+        final_N (int, optional): The final value of N (usually 150 for simpler datasets). Defaults to 150.
 
     Returns:
-        torch.Tensor: _description_
+        int: The number of discretization steps (N) to use for this epoch.
+    """    
+    target_variance = (epoch / num_epochs) * ((final_N ** 2) - (initial_N ** 2)) + (initial_N ** 2)
+    current_N = math.ceil(math.sqrt(target_variance))
+    return current_N
+
+
+def get_karras_time_schedule(N: int,
+                             sigma_min: float = 0.002, 
+                             sigma_max: float = 80.0, 
+                             rho: float = 7
+                             ) -> torch.Tensor:
     """
-    x2 = x + z * t2[:, :, None, None]
-    x2 = online_model(x2, t2)
+    Returns a Karras-style Discretized Time Schedule.
 
-    with torch.no_grad():
-        x1 = x + z * t1[:, :, None, None]
-        x1 = ema_model(x1, t1)
+    Args:
+        N (int): Number of descretization steps between sigma_min and sigma_max.
+        sigma_min (float, optional): Represents the minimum noise level, which typically happens at the end of the generation process.
+            Defaults to 0.002.
+        sigma_max (float, optional): Represents the maximum noise level, which typically happens at the start of the generation process. 
+            Defaults to 80.0.
+        rho (float, optional): Represents the steepness of the timesteps. Defaults to 7, which typically forces vast majority of the
+            steps to cluser near zero noise / sigma_min.
 
-    return F.mse_loss(x1, x2)
+    Returns:
+        torch.Tensor: Tensor representing the timesteps according to Karras Schedule.
+    """
+    # Calculate parts of the Karras Schedule Equation ahead of time for readability
+    rho_inv = 1.0 / rho
+    min_inv = sigma_min ** rho_inv
+    max_inv = sigma_max ** rho_inv
+    
+    # Create a linear grid from 0 to 1 with N elements
+    steps = torch.linspace(0, 1, N)
+    
+    # Compute the Karras Schedule
+    # formula: (sigma_max^(1/rho) + steps * (sigma_min^(1/rho) - sigma_max^(1/rho)))^rho
+    karras_schedule = (max_inv + steps * (min_inv - max_inv)) ** rho
+
+    # Return the Karras Schedule
+    return karras_schedule
 
 
 
@@ -156,3 +203,10 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
 
     # TODO: Call the training loop
+    trained_online_model, loss_history = train(
+        online_model,
+        ema_model,
+        mnist_dataloader,
+        optimizer,
+        num_epochs = 10
+    )
