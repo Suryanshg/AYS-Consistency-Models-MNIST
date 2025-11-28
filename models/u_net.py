@@ -27,19 +27,16 @@ class UNet(nn.Module):
         self.dconv_down1 = double_conv(in_channels + time_embedding_dim, 64)
         self.dconv_down2 = double_conv(64, 128)
         self.dconv_down3 = double_conv(128, 256)
-        self.dconv_down4 = double_conv(256, 512)
 
         self.maxpool = nn.MaxPool2d(2)
 
         # TODO: Look into using mode = 'nearest' later
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
-        self.dconv_up3 = double_conv(512 + time_embedding_dim + 256, 256)
-        self.dconv_up2 = double_conv(256 + 128, 128)
+        self.dconv_up2 = double_conv(256 + time_embedding_dim + 128, 128)
         self.dconv_up1 = double_conv(128 + 64, 64)
 
         self.conv_last = nn.Conv2d(64, out_channels, 1)
-
 
     def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
         """
@@ -68,18 +65,14 @@ class UNet(nn.Module):
         # └───────────────────────────────────────────────┘
         # First Encoder Block
         conv1 = self.dconv_down1(x)                                 # (N, 64, H, W)
-        x = self.maxpool(conv1)                                     # (N, 64, H/2, W/2) --> Maxpool halves spatial dims
+        x = self.maxpool(conv1)                                     # (N, 64, H/2, W/2)
 
         # Second Encoder Block
         conv2 = self.dconv_down2(x)                                 # (N, 128, H/2, W/2)
         x = self.maxpool(conv2)                                     # (N, 128, H/4, W/4)
 
         # Third Encoder Block
-        conv3 = self.dconv_down3(x)                                 # (N, 256, H/4, W/4)
-        x = self.maxpool(conv3)                                     # (N, 256, H/8, W/8)
-
-        # Final Encoder Block
-        x = self.dconv_down4(x)                                     # (N, 512, H/8, W/8)
+        x = self.dconv_down3(x)                                     # (N, 256, H/4, W/4)
 
 
         # ┌───────────────────────────────────────────────┐
@@ -89,25 +82,19 @@ class UNet(nn.Module):
         x = torch.cat(
             [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
-        )                                                           # (N, 512 + time_embedding_dim, H/8, W/8)
-        x = self.upsample(x)                                        # (N, 512 + time_embedding_dim, H/4, W//4)
+        )                                                           # (N, 256 + time_embedding_dim, H/4, W/4)
+        x = self.upsample(x)                                        # (N, 256 + time_embedding_dim, H/2, W/2)
 
 
         # ┌───────────────────────────────────────────────┐
         # │           DECODER BLOCKS (UPSAMPLING)         │
         # └───────────────────────────────────────────────┘
         # First Decoder Block
-        # TODO: x has shape (N, 576, 6, 6) here and conv3 has shape (N, 256, 7, 7)
-        x = torch.cat([x, conv3], dim=1)                            # (N, 512 + time_embedding_dim + 256, H/4, W/4)
-        x = self.dconv_up3(x)                                       # (N, 256, H/4, W/4)
-        x = self.upsample(x)                                        # (N, 256, H/2, W/2)
-
-        # Second Decoder Block
-        x = torch.cat([x, conv2], dim=1)                            # (N, 256 + 128, H/2, W/2)
+        x = torch.cat([x, conv2], dim=1)                            # (N, 256 + time_embedding_dim + 128, H/2, W/2)
         x = self.dconv_up2(x)                                       # (N, 128, H/2, W/2)
         x = self.upsample(x)                                        # (N, 128, H, W)
 
-        # Third Decoder Block
+        # Second Decoder Block
         x = torch.cat([x, conv1], dim=1)                            # (N, 128 + 64, H, W)
         x = self.dconv_up1(x)                                       # (N, 64, H, W)
 
@@ -116,6 +103,7 @@ class UNet(nn.Module):
 
         # Return the output of the forward pass
         return out  
+    
 
 # ┌───────────────────────────────────────────────┐
 # │                HELPER METHODS                 │

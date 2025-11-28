@@ -7,6 +7,7 @@ from datasets.mnist_dataloader import get_mnist_dataloader
 from models.u_net import UNet
 from typing import Tuple, List
 import math
+import matplotlib.pyplot as plt
 
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
 # Lower "t" means low timestep, but also low noise levels.
@@ -59,6 +60,10 @@ def train(
         # Formula: exp(initial_N * log(mu_0) / N)
         mu = math.exp(initial_N * math.log(0.95) / N)
 
+        # Track running_loss
+        running_loss = 0.0
+        steps = 0
+
         # For each minibatch in the dataloader
         for x, _ in tqdm(dataloader):
             # Load x on device
@@ -102,10 +107,16 @@ def train(
                     # Mathematical equivalent: ema = mu * ema + (1-mu) * online
                     ema_params.mul_(mu).add_(online_params, alpha = 1 - mu)
 
-            # Accumulate Loss for loss trajectory
-            loss_history.append(loss.item())
+            # Accumulate Running Loss
+            running_loss += loss.item()
+            steps += 1
+            
+        # Epoch Over; Calculate Avg Loss
+        avg_loss = (running_loss / steps)
+        loss_history.append(avg_loss)
 
         # TODO: Add Logging for every epoch
+        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
 
     # Return trained online model and loss history
     return online_model, loss_history
@@ -172,6 +183,17 @@ def get_karras_time_schedule(N: int,
     return karras_schedule
 
 
+def visualize_loss_trajectory(loss_history: List[float]):
+    plt.figure(figsize=(6, 4))
+    plt.plot(loss_history, label="Loss Trajectory", color="blue")
+    plt.xlabel("Epochs")
+    plt.ylabel("MSE Loss")
+    plt.title("Consistency Model: Loss Trajectory")
+    plt.legend()
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.savefig('viz/consistency_loss_trajectory.png')
+
+
 
 # ┌───────────────────────────────────────────────┐
 # │                 DRIVER CODE                   │
@@ -201,11 +223,19 @@ if __name__ == '__main__':
     # Init Optimizer for Online Model
     optimizer = torch.optim.Adam(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
 
-    # TODO: Call the training loop
+    # Call the training loop
     trained_online_model, loss_history = train(
         online_model,
         ema_model,
         mnist_dataloader,
         optimizer,
-        num_epochs = 10
+        num_epochs = 5
     )
+
+
+    # TODO: Visualize the Loss Trajectory
+    visualize_loss_trajectory(loss_history)
+
+
+    # TODO: Save the trained model
+    torch.save(trained_online_model.state_dict(), "trained_model_weights/trained_consistency_model.pth")

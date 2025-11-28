@@ -26,7 +26,7 @@ def sample(
 
     for t in sampling_schedule[1:]:
         z = torch.randn_like(x)
-        z_t = x + (math.sqrt((t ** 2) - (epsilon ** 2)) * z) # TODO: Check if this can be done without math lib
+        z_t = x + (math.sqrt((t ** 2) - (epsilon ** 2)) * z)
         x = online_model(z_t, t)
 
     return x
