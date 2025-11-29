@@ -4,7 +4,7 @@ import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 from datasets.mnist_dataloader import get_mnist_dataloader
-from models.u_net import UNet
+from models.u_net import ConsistencyUNet
 from typing import Tuple, List
 import math
 import matplotlib.pyplot as plt
@@ -23,7 +23,7 @@ def train(
         num_epochs: int = 10,
         initial_N: int = 2,
         final_N: int = 150
-        ) -> Tuple[nn.Module, List]:
+        ) -> Tuple[nn.Module, nn.Module, List]:
     """
     TODO
 
@@ -118,8 +118,8 @@ def train(
         # TODO: Add Logging for every epoch
         tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
 
-    # Return trained online model and loss history
-    return online_model, loss_history
+    # Return trained models and loss history
+    return online_model, ema_model, loss_history
 
 
 # ┌───────────────────────────────────────────────┐
@@ -213,29 +213,29 @@ if __name__ == '__main__':
     print(f"X (Image) shape: {mnist_dataloader.dataset[0][0].shape}")
     print(f"{'-' * 34}")
 
-    # Init Online Model
-    online_model = UNet().to(DEVICE)
+    # Init UNets
+    online_model = ConsistencyUNet().to(DEVICE)
+    ema_model = ConsistencyUNet().to(DEVICE)
 
-    # Init EMA Model and do load_state_dict from online model
-    ema_model = UNet().to(DEVICE)
+    # Load EMA weights from Online
     ema_model.load_state_dict(online_model.state_dict())
 
     # Init Optimizer for Online Model
     optimizer = torch.optim.Adam(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
 
     # Call the training loop
-    trained_online_model, loss_history = train(
-        online_model,
-        ema_model,
-        mnist_dataloader,
-        optimizer,
-        num_epochs = 5
-    )
+    trained_online_model, trained_ema_model, loss_history = train(online_model,
+                                                                  ema_model,
+                                                                  mnist_dataloader,
+                                                                  optimizer,
+                                                                  num_epochs = 5)
 
 
-    # TODO: Visualize the Loss Trajectory
+    # Visualize the Loss Trajectory
     visualize_loss_trajectory(loss_history)
 
+    # Save the EMA Model weights
+    torch.save(trained_ema_model.state_dict(), "trained_model_weights/consistency_ema.pth")
 
-    # TODO: Save the trained model
-    torch.save(trained_online_model.state_dict(), "trained_model_weights/trained_consistency_model.pth")
+    # Save the Online Model weights
+    torch.save(trained_online_model.state_dict(), "trained_model_weights/consistency_online.pth")

@@ -2,60 +2,74 @@ import torch
 import numpy as np
 import torch.nn as nn
 from torch.nn import Sequential
+import math
+from typing import Tuple
 
-# TODO: Fix the network as it does not work with Consistency Model Code
+
 # ┌───────────────────────────────────────────────┐
 # │               NETWORK DEFINITION              │
 # └───────────────────────────────────────────────┘
-class UNet(nn.Module):
+class ConsistencyUNet(nn.Module):
     """
-    Definition of a simple implementation of a UNet for Diffusion & Consistency Models.
+    Definition of a simple implementation of a UNet for Consistency Models.
     """
-    def __init__(self, in_channels: int = 1, out_channels: int = 1, time_embedding_dim: int = 64):
-        """
-        Constructor for the UNet Class.
-
-        Args:
-            in_channels (int): Represents number of input channels
-            out_channels (int): Represents number of output channels
-            time_embedding_dim (int): Represents dimension of time embedding vector / tensor
-        """
+    def __init__(self, 
+                 in_channels: int = 1, 
+                 out_channels: int = 1, 
+                 time_embedding_dim: int = 64,
+                 sigma_data: float = 0.5,
+                 epsilon: float = 0.002):
+        
         super().__init__()
-
         self.time_embedding_dim = time_embedding_dim
 
+        # Consistency Parameters
+        self.sigma_data = sigma_data
+        self.epsilon = epsilon
+
+        # Layers
         self.dconv_down1 = double_conv(in_channels + time_embedding_dim, 64)
         self.dconv_down2 = double_conv(64, 128)
         self.dconv_down3 = double_conv(128, 256)
 
         self.maxpool = nn.MaxPool2d(2)
-
         # TODO: Look into using mode = 'nearest' later
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
         self.dconv_up2 = double_conv(256 + time_embedding_dim + 128, 128)
         self.dconv_up1 = double_conv(128 + 64, 64)
-
         self.conv_last = nn.Conv2d(64, out_channels, 1)
 
+    
+    def get_scaling_factors(self, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Computes c_skip and c_out scaling factors.
+        Ensures that at epsilon (lowest noise), the model outputs the input exactly.
+        Shape of t: (N,)
+        """
+        # Equations of c_skip and c_out from Consistency Models paper (Pg 26.)
+        # c_skip = σ_data^2 / ((t - ϵ)^2 + σ_data^2)
+        # c_out  = (t - ϵ) * σ_data / sqrt(t^2 + σ_data^2)
+        c_skip = self.sigma_data ** 2 / ((t - self.epsilon) ** 2 + self.sigma_data ** 2)            # (N,)
+        c_out = (t - self.epsilon) * self.sigma_data / ((self.sigma_data ** 2) + (t ** 2)).sqrt()   # (N,)
+        
+        return c_skip, c_out
+
+
     def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
-        """
-        Forward Pass Method for the UNet for Diffusion / Consistency Model. Uses Time Embedding as Channel to the Input of both the Encoder
-        Blocks and the Decoder Blocks (via the Bottleneck layers).
-
-        Args:
-            x (torch.Tensor): represents in the input (usually image / latent code). Should be of shape (N, 1, H, W).
-            time_step (torch.Tensor): represents the timestep of the image / latent code. Should be of shape (N,).
-
-        Returns:
-            torch.Tensor: represents the output of the UNet Forward Pass. Will be of the same shape as input (N, 1, H, W).
-        """
         # x shape: (N, 1, H, W)
         # time_index shape: (N,)
 
+        # Prepare Scaling Factors
+        c_skip, c_out = self.get_scaling_factors(time_step)          # both have shape (N,)
+
+        # Reshape scaling factors for broadcasting
+        c_skip = c_skip.reshape(-1, 1, 1, 1)
+        c_out = c_out.reshape(-1, 1, 1, 1)
+
         # Perform embedding of time using sinusoidal embedding
         time_embedding = sinusoidal_embedding(time_step, self.time_embedding_dim)           # (N, time_embedding_dim)
-        x = torch.cat(
+        x_in = torch.cat(
             [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
         )                                                           # (N, 1 + time_embedding_dim, H, W)
@@ -64,87 +78,71 @@ class UNet(nn.Module):
         # │         ENCODER BLOCKS (DOWNSAMPLING)         │
         # └───────────────────────────────────────────────┘
         # First Encoder Block
-        conv1 = self.dconv_down1(x)                                 # (N, 64, H, W)
-        x = self.maxpool(conv1)                                     # (N, 64, H/2, W/2)
+        conv1 = self.dconv_down1(x_in)                                  # (N, 64, H, W)
+        x_enc = self.maxpool(conv1)                                     # (N, 64, H/2, W/2)
 
         # Second Encoder Block
-        conv2 = self.dconv_down2(x)                                 # (N, 128, H/2, W/2)
-        x = self.maxpool(conv2)                                     # (N, 128, H/4, W/4)
+        conv2 = self.dconv_down2(x_enc)                                 # (N, 128, H/2, W/2)
+        x_enc = self.maxpool(conv2)                                     # (N, 128, H/4, W/4)
 
         # Third Encoder Block
-        x = self.dconv_down3(x)                                     # (N, 256, H/4, W/4)
+        x_enc = self.dconv_down3(x_enc)                                 # (N, 256, H/4, W/4)
 
 
         # ┌───────────────────────────────────────────────┐
         # │         BOTTLENECK WITH TIME EMBEDDING        │
         # └───────────────────────────────────────────────┘
         # Add Time embedding as channel at bottleneck
-        x = torch.cat(
-            [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
+        x_enc = torch.cat(
+            [x_enc, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x_enc.size(0), -1, x_enc.size(2), x_enc.size(3))],
             dim=1
-        )                                                           # (N, 256 + time_embedding_dim, H/4, W/4)
-        x = self.upsample(x)                                        # (N, 256 + time_embedding_dim, H/2, W/2)
+        )                                                               # (N, 256 + time_embedding_dim, H/4, W/4)
+        x_enc = self.upsample(x_enc)                                    # (N, 256 + time_embedding_dim, H/2, W/2)
 
 
         # ┌───────────────────────────────────────────────┐
         # │           DECODER BLOCKS (UPSAMPLING)         │
         # └───────────────────────────────────────────────┘
         # First Decoder Block
-        x = torch.cat([x, conv2], dim=1)                            # (N, 256 + time_embedding_dim + 128, H/2, W/2)
-        x = self.dconv_up2(x)                                       # (N, 128, H/2, W/2)
-        x = self.upsample(x)                                        # (N, 128, H, W)
+        x_enc = torch.cat([x_enc, conv2], dim=1)                        # (N, 256 + time_embedding_dim + 128, H/2, W/2)
+        x_enc = self.dconv_up2(x_enc)                                   # (N, 128, H/2, W/2)
+        x_enc = self.upsample(x_enc)                                    # (N, 128, H, W)
 
         # Second Decoder Block
-        x = torch.cat([x, conv1], dim=1)                            # (N, 128 + 64, H, W)
-        x = self.dconv_up1(x)                                       # (N, 64, H, W)
+        x_enc = torch.cat([x_enc, conv1], dim=1)                        # (N, 128 + 64, H, W)
+        x_enc = self.dconv_up1(x_enc)                                   # (N, 64, H, W)
 
         # Final Decoder Block
-        out = self.conv_last(x)                                     # (N, 1, H, W)
+        F_x = self.conv_last(x_enc)                                     # (N, 1, H, W)
 
-        # Return the output of the forward pass
-        return out  
+        # Apply Consistency Formula using scaling factors and return the output
+        return c_skip * x + c_out * F_x  
     
 
 # ┌───────────────────────────────────────────────┐
 # │                HELPER METHODS                 │
 # └───────────────────────────────────────────────┘
-def sinusoidal_embedding(times: torch.Tensor, time_embedding_dim: int = 64, T: int = 1000) -> torch.Tensor:
-    """
-    Consumes a tensor representing timesteps and returns a tensor of sinusoidal embeddings.
-
-    Args:
-        times (torch.Tensor): tensor representing timesteps. Should be of shape (batch_size,)
-        time_embedding_dim (int): represents the dimension of the time_embedding to use.
-        T (int): represents total number of timesteps.
-
-    Returns:
-        torch.Tensor: tensor representing sinusoidal embeddings for each timestep
-    """
-    # Set the min frequency
-    embedding_min_frequency = 1.0
-
-    # Compute Frequencies
-    frequencies = torch.exp(
-        torch.linspace(
-            np.log(embedding_min_frequency),
-            np.log(T),
-            time_embedding_dim // 2
-        )
-    ).view(1, -1).to(times.device)                      # (1, time_embedding_dim // 2)
-
-    # Convert Frequencies to Angular Speeds (ω = 2 * π * frequency)
-    angular_speeds = 2.0 * torch.pi * frequencies       # (1, time_embedding_dim // 2)
-
-    # Convert times to a 2D tensor with float32 dtype
-    times = times.view(-1, 1).float()                   # (batch_size, 1)
-
-    # Compute Embeddings by Matrix Multiplication of times tensor with angular speeds
-    embeddings = torch.cat(
-        [torch.sin(times.matmul(angular_speeds) / T), torch.cos(times.matmul(angular_speeds) / T)], dim=1
-    )                                                   # (batch_size, time_embedding_dim)
-
-    # Return the computed sinusoidal embeddings
-    return embeddings
+def sinusoidal_embedding(times: torch.Tensor, time_embedding_dim: int = 64) -> torch.Tensor:
+    
+    # LOGARITHMIC TRANSFORMATION
+    log_times = torch.log(times) * 0.25 
+    
+    # EMBEDDING CALCULATION
+    # We use half the dimensions for sin, half for cos
+    half_dim = time_embedding_dim // 2
+    
+    # Calculate frequencies: From 1.0 down to 1/10000
+    emb = math.log(10000) / (half_dim - 1)
+    emb = torch.exp(torch.arange(half_dim, device=times.device) * -emb)
+    
+    # COMBINE log times and embeddings
+    # Shape: (batch, 1) * (1, half_dim) -> (batch, half_dim)
+    emb = log_times.view(-1, 1) * emb.view(1, -1)
+    
+    # Compute sin and cos of embeddings and concatenate them
+    emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
+        
+    return emb
 
 
 def double_conv(in_channels: int, out_channels: int) -> Sequential:
