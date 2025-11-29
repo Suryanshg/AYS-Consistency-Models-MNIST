@@ -46,7 +46,7 @@ def train(
     loss_history = []
 
     # Iterate num_epochs times
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs)):
 
         # Curriculum Learning
         # Get N for this epoch (for Karras Schedule Calculations)
@@ -65,7 +65,7 @@ def train(
         steps = 0
 
         # For each minibatch in the dataloader
-        for x, _ in tqdm(dataloader):
+        for x, _ in dataloader:
             # Load x on device
             x = x.to(DEVICE)                                            # (batch_size, 1, H, W)
             batch_size = x.shape[0]                                     
@@ -104,6 +104,7 @@ def train(
             # Update EMA Model Weights
             with torch.no_grad():
                 for online_params, ema_params in zip(online_model.parameters(), ema_model.parameters()):
+
                     # Mathematical equivalent: ema = mu * ema + (1-mu) * online
                     ema_params.mul_(mu).add_(online_params, alpha = 1 - mu)
 
@@ -115,7 +116,7 @@ def train(
         avg_loss = (running_loss / steps)
         loss_history.append(avg_loss)
 
-        # TODO: Add Logging for every epoch
+        # Add Logging for every epoch
         tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
 
     # Return trained models and loss history
@@ -143,7 +144,7 @@ def get_N_for_karras_time_schedule(epoch: int,
         int: The number of discretization steps (N) to use for this epoch.
     """    
     target_variance = (epoch / num_epochs) * ((final_N ** 2) - (initial_N ** 2)) + (initial_N ** 2)
-    current_N = math.ceil(math.sqrt(target_variance))
+    current_N = math.ceil(math.sqrt(target_variance) - 1) + 1
     return current_N
 
 

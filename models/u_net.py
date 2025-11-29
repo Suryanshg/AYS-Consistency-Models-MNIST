@@ -1,5 +1,4 @@
 import torch
-import numpy as np
 import torch.nn as nn
 from torch.nn import Sequential
 import math
@@ -41,7 +40,7 @@ class ConsistencyUNet(nn.Module):
         self.conv_last = nn.Conv2d(64, out_channels, 1)
 
     
-    def get_scaling_factors(self, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def get_scaling_factors(self, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
         Computes c_skip and c_out scaling factors.
         Ensures that at epsilon (lowest noise), the model outputs the input exactly.
@@ -52,8 +51,10 @@ class ConsistencyUNet(nn.Module):
         # c_out  = (t - ϵ) * σ_data / sqrt(t^2 + σ_data^2)
         c_skip = self.sigma_data ** 2 / ((t - self.epsilon) ** 2 + self.sigma_data ** 2)            # (N,)
         c_out = (t - self.epsilon) * self.sigma_data / ((self.sigma_data ** 2) + (t ** 2)).sqrt()   # (N,)
+
+        c_in = 1 / ((self.sigma_data ** 2) + (t ** 2)).sqrt()                                       # (N,)
         
-        return c_skip, c_out
+        return c_skip, c_out, c_in
 
 
     def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
@@ -61,16 +62,21 @@ class ConsistencyUNet(nn.Module):
         # time_index shape: (N,)
 
         # Prepare Scaling Factors
-        c_skip, c_out = self.get_scaling_factors(time_step)          # both have shape (N,)
+        c_skip, c_out, c_in = self.get_scaling_factors(time_step)          # both have shape (N,)
 
         # Reshape scaling factors for broadcasting
         c_skip = c_skip.reshape(-1, 1, 1, 1)
         c_out = c_out.reshape(-1, 1, 1, 1)
+        c_in = c_in.reshape(-1, 1, 1, 1)
 
         # Perform embedding of time using sinusoidal embedding
         time_embedding = sinusoidal_embedding(time_step, self.time_embedding_dim)           # (N, time_embedding_dim)
+
+        # Scale input
+        x_scaled = x * c_in
+
         x_in = torch.cat(
-            [x, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
+            [x_scaled, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
             dim=1
         )                                                           # (N, 1 + time_embedding_dim, H, W)
 
@@ -116,7 +122,7 @@ class ConsistencyUNet(nn.Module):
         F_x = self.conv_last(x_enc)                                     # (N, 1, H, W)
 
         # Apply Consistency Formula using scaling factors and return the output
-        return c_skip * x + c_out * F_x  
+        return (c_skip * x) + (c_out * F_x) 
     
 
 # ┌───────────────────────────────────────────────┐
@@ -159,7 +165,11 @@ def double_conv(in_channels: int, out_channels: int) -> Sequential:
     """
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, 3, padding=1),     # (N, out_channels, H, W)
-        nn.ReLU(inplace=True),
+        nn.GroupNorm(num_groups=32, num_channels=out_channels),
+        # nn.ReLU(inplace=True),
+        nn.SiLU(),
         nn.Conv2d(out_channels, out_channels, 3, padding=1),    # (N, out_channels, H, W)
-        nn.ReLU(inplace=True)
+        nn.GroupNorm(num_groups=32, num_channels=out_channels),
+        # nn.ReLU(inplace=True)
+        nn.SiLU()
     )

@@ -34,7 +34,7 @@ def sample(
         t_tensor = t.repeat(batch_size)
 
         # Predict x_hat using noised image and t_tensor
-        x_hat = online_model(z_t, t)
+        x_hat = online_model(z_t, t_tensor)
     
     # De-normalize the image
     x_hat = (x_hat * 0.5 + 0.5)
@@ -65,7 +65,7 @@ if __name__ == '__main__':
         z_t = torch.randn(25, 1, 28, 28).to(DEVICE) * 80.0
 
         # Define Sampling Schedule
-        sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
+        sampling_schedule = torch.tensor([80.0, 20.0, 10.0, 5.0, 3.0, 1.0, 0.5, 0.1, 0.002], device=DEVICE)
 
         sampled_imgs_tensor = sample(trained_model, z_t, sampling_schedule)        # (25, 1, 28, 28)
     
