@@ -62,7 +62,7 @@ class ConsistencyUNet(nn.Module):
         # time_index shape: (N,)
 
         # Prepare Scaling Factors
-        c_skip, c_out, c_in = self.get_scaling_factors(time_step)          # both have shape (N,)
+        c_skip, c_out, c_in = self.get_scaling_factors(time_step)          # all have shape (N,)
 
         # Reshape scaling factors for broadcasting
         c_skip = c_skip.reshape(-1, 1, 1, 1)

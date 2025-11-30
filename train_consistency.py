@@ -4,7 +4,10 @@ import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 from datasets.mnist_dataloader import get_mnist_dataloader
-from models.ConsistencyUNet import ConsistencyUNet
+
+# from models.ConsistencyUNet import ConsistencyUNet
+from models.ConsistencyUNet2 import ConsistencyUNet
+
 from typing import Tuple, List
 import math
 import matplotlib.pyplot as plt
@@ -58,7 +61,7 @@ def train(
         # Calculate EMA Decay Rate (mu) for this epoch
         # As N grows (intervals get smaller), we want the EMA to update slower (higher mu).
         # Formula: exp(initial_N * log(mu_0) / N)
-        mu = math.exp(initial_N * math.log(0.9) / N)
+        mu = math.exp(initial_N * math.log(0.9) / N)        # TODO: Remove hardcoding
 
         # Track running_loss
         running_loss = 0.0
@@ -84,7 +87,7 @@ def train(
 
             # Online Model Forward Pass (High Noise -> Clean)
             # Add noise to x based on sigmas_t2
-            z_t2 = x + z * sigmas_t2.reshape(-1, 1, 1, 1)
+            z_t2 = x + z * sigmas_t2.reshape(-1, 1, 1, 1)               # (batch_size, 1, H, W)
             online_output = online_model(z_t2, sigmas_t2)
 
             # EMA Model Forward Pass (Low Noise -> Clean)
@@ -109,15 +112,19 @@ def train(
                     ema_params.mul_(mu).add_(online_params, alpha = 1 - mu)
 
             # Accumulate Running Loss
+            loss_history.append(loss.item())
             running_loss += loss.item()
             steps += 1
             
         # Epoch Over; Calculate Avg Loss
         avg_loss = (running_loss / steps)
-        loss_history.append(avg_loss)
 
         # Add Logging for every epoch
-        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
+        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, N: {N}, mu:{mu}")
+
+
+        # TODO: Eval Model after every epoch for each N and how it performs
+        # TODO: Viz about training performance for both models
 
     # Return trained models and loss history
     return online_model, ema_model, loss_history
@@ -236,7 +243,7 @@ if __name__ == '__main__':
     visualize_loss_trajectory(loss_history)
 
     # Save the EMA Model weights
-    torch.save(trained_ema_model.state_dict(), "trained_model_weights/consistency_ema.pth")
+    torch.save(trained_ema_model.state_dict(), "trained_model_weights/consistency_ema_cm2.pth")
 
     # Save the Online Model weights
-    torch.save(trained_online_model.state_dict(), "trained_model_weights/consistency_online.pth")
+    torch.save(trained_online_model.state_dict(), "trained_model_weights/consistency_online_cm2.pth")

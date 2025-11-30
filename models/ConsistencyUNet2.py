@@ -1,58 +1,56 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import math
 from typing import Tuple
 
 # ┌───────────────────────────────────────────────┐
-# │              HELPER CLASSES                   │
+# │                 HELPER NETWORK                │
 # └───────────────────────────────────────────────┘
-
 class TimeAwareConv(nn.Module):
-    """
-    Replaces 'double_conv'. 
-    It takes the image 'x' AND the 'time_emb'.
-    It injects the time info into the features so the layer knows the noise level.
-    """
     def __init__(self, in_channels, out_channels, time_embedding_dim):
         super().__init__()
         
-        # 1. First Convolution
+        # First Convolution Block
         self.conv1 = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, 3, padding=1),
             nn.GroupNorm(32, out_channels),
             nn.SiLU(),
         )
         
-        # 2. Time Projection (The "Time Injection")
-        # Projects time_emb from 64 -> out_channels
+        # Time Projection
+        # Projects time_emb from time_embedding_dim -> out_channels
         self.time_proj = nn.Sequential(
             nn.SiLU(),
             nn.Linear(time_embedding_dim, out_channels)
         )
 
-        # 3. Second Convolution
+        # Second Convolution Block
         self.conv2 = nn.Sequential(
             nn.Conv2d(out_channels, out_channels, 3, padding=1),
             nn.GroupNorm(32, out_channels),
             nn.SiLU(),
         )
 
+
     def forward(self, x, t_emb):
-        # Run first conv
-        h = self.conv1(x)
+        # x shape: (N, C_in, H, W)
+        # t_emb: (N, time_embedding_dim)
+
+        # Forward pass thru first convolution block
+        h = self.conv1(x)                                   # (N, C_out, H, W)
         
         # INJECT TIME: Project time embedding and add to features
         # We reshape time_emb to (Batch, Channels, 1, 1) to broadcast
-        time_bias = self.time_proj(t_emb)
-        h = h + time_bias[:, :, None, None]
+        time_bias = self.time_proj(t_emb)                   # (N, C_out)
+        h = h + time_bias[:, :, None, None]                 # (N, C_out, H, W)
         
         # Run second conv
-        h = self.conv2(h)
+        h = self.conv2(h)                                   # (N, C_out, H, W)
         return h
 
+
 # ┌───────────────────────────────────────────────┐
-# │               NETWORK DEFINITION              │
+# │                 MAIN NETWORK                  │
 # └───────────────────────────────────────────────┘
 class ConsistencyUNet(nn.Module):
     def __init__(self, 
@@ -67,23 +65,24 @@ class ConsistencyUNet(nn.Module):
         self.sigma_data = sigma_data
         self.epsilon = epsilon
 
-        # Initial Projection (Scale up input channels)
+        # Initial Convolution (Scale up from input channels)
         self.init_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
 
-        # Layers (Now using TimeAwareConv)
-        # Note: We pass time_embedding_dim to every block
+        # Downsampling Layers with time_embedding injection in every block
         self.dconv_down1 = TimeAwareConv(64, 64, time_embedding_dim)
         self.dconv_down2 = TimeAwareConv(64, 128, time_embedding_dim)
         self.dconv_down3 = TimeAwareConv(128, 256, time_embedding_dim)
 
-        # FIX: Use AvgPool instead of MaxPool (Preserves info better for generation)
-        self.avgpool = nn.AvgPool2d(2) 
+        self.avgpool = nn.AvgPool2d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
+        # Upsampling Layers with time_embedding injection in every block
         self.dconv_up2 = TimeAwareConv(256 + 128, 128, time_embedding_dim)
         self.dconv_up1 = TimeAwareConv(128 + 64, 64, time_embedding_dim)
         
+        # Final Convolution (Scale down to output channels)
         self.conv_last = nn.Conv2d(64, out_channels, 1)
+
 
     def get_scaling_factors(self, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         c_skip = self.sigma_data ** 2 / ((t - self.epsilon) ** 2 + self.sigma_data ** 2)
@@ -91,46 +90,50 @@ class ConsistencyUNet(nn.Module):
         c_in = 1 / (self.sigma_data ** 2 + t ** 2).sqrt()
         return c_skip, c_out, c_in
 
-    def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
-        # 1. SCALING
-        c_skip, c_out, c_in = self.get_scaling_factors(time_step)
-        c_skip, c_out, c_in = c_skip.view(-1, 1, 1, 1), c_out.view(-1, 1, 1, 1), c_in.view(-1, 1, 1, 1)
 
-        # 2. TIME EMBEDDING
-        t_emb = sinusoidal_embedding(time_step, self.time_embedding_dim)
+    def forward(self, x: torch.Tensor, time_step: torch.Tensor) -> torch.Tensor:
+        # x shape: (N, 1, H, W)
+        # time_step shape: (N,)
+
+        # Fetch Scaling Factors using the time step
+        c_skip, c_out, c_in = self.get_scaling_factors(time_step)                                               # All have shape: (N,)                                     
+        c_skip, c_out, c_in = c_skip.view(-1, 1, 1, 1), c_out.view(-1, 1, 1, 1), c_in.view(-1, 1, 1, 1)         # All have shape: (N, 1, 1, 1)
+
+        # Generate sinusoidal style time embedding
+        t_emb = sinusoidal_embedding(time_step, self.time_embedding_dim)        # (N, time_embedding_dim)
 
         # 3. U-NET BACKBONE
         # Scale input
-        x = x * c_in
+        x_scaled = x * c_in                                                     # (N, 1, H, W)                                                            
         
-        # Initial Conv (No time yet)
-        x1 = self.init_conv(x)
+        # Initial Conv (No Time Injection)
+        x1 = self.init_conv(x_scaled)                                           # (N, 64, H, W)
         
-        # Encoder (Pass t_emb to every block!)
-        x1 = self.dconv_down1(x1, t_emb)    # 28x28
-        x2 = self.avgpool(x1)
-        x2 = self.dconv_down2(x2, t_emb)    # 14x14
-        x3 = self.avgpool(x2)
-        x3 = self.dconv_down3(x3, t_emb)    # 7x7
-        
-        # Bottleneck
-        # No need for manual concat anymore, the TimeAwareConv handles it if we ran another block here
-        # But for simplicity, let's just proceed to upsampling
+        # Encoder
+        x1 = self.dconv_down1(x1, t_emb)                                        # (N, 64, H, W)
+        x2 = self.avgpool(x1)                                                   # (N, 64, H/2, W/2)
+        x2 = self.dconv_down2(x2, t_emb)                                        # (N, 128, H/2, W/2)
+        x3 = self.avgpool(x2)                                                   # (N, 128, H/4, W/4)
+        x3 = self.dconv_down3(x3, t_emb)                                        # (N, 256, H/4, W/4) 
+
         
         # Decoder
-        x_up = self.upsample(x3)            # 14x14
-        x_up = torch.cat([x_up, x2], dim=1)
-        x_up = self.dconv_up2(x_up, t_emb)  # Pass t_emb!
+        x_up = self.upsample(x3)                                                # (N, 256, H/2, W/2)
+        x_up = torch.cat([x_up, x2], dim=1)                                     # (N, 384, H/2, W/2)
+        x_up = self.dconv_up2(x_up, t_emb)                                      # (N, 128, H/2, W/2)
         
-        x_up = self.upsample(x_up)          # 28x28
-        x_up = torch.cat([x_up, x1], dim=1)
-        x_up = self.dconv_up1(x_up, t_emb)  # Pass t_emb!
+        x_up = self.upsample(x_up)                                              # (N, 128, H, W)
+        x_up = torch.cat([x_up, x1], dim=1)                                     # (N, 192, H, W)
+        x_up = self.dconv_up1(x_up, t_emb)                                      # (N, 64, H, W)
 
-        F_x = self.conv_last(x_up)
+        F_x = self.conv_last(x_up)                                              # (N, 1, H, W)
 
-        return c_skip * x + c_out * F_x
+        return c_skip * x + c_out * F_x                                         # (N, 1, H, W)
 
-# Helper for sinusoidal embedding
+
+# ┌───────────────────────────────────────────────┐
+# │                HELPER METHODS                 │
+# └───────────────────────────────────────────────┘
 def sinusoidal_embedding(times: torch.Tensor, dim: int) -> torch.Tensor:
     log_times = torch.log(times) * 0.25 
     half_dim = dim // 2

@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import math
-from models.ConsistencyUNet import ConsistencyUNet
+# from models.ConsistencyUNet import ConsistencyUNet
+from models.ConsistencyUNet2 import ConsistencyUNet
 import matplotlib.pyplot as plt
 
 def sample(
@@ -44,6 +45,10 @@ def sample(
 
     return x_hat
 
+
+# ┌───────────────────────────────────────────────┐
+# │                 DRIVER CODE                   │
+# └───────────────────────────────────────────────┘
 if __name__ == '__main__':
 
     # Determine Device for the whole session
@@ -55,12 +60,12 @@ if __name__ == '__main__':
     trained_ema_model = ConsistencyUNet().to(DEVICE)
 
     # Load Weights into the Consistency Models
-    trained_online_model.load_state_dict(torch.load("trained_model_weights/consistency_online.pth", map_location=DEVICE))
-    trained_ema_model.load_state_dict(torch.load("trained_model_weights/consistency_ema.pth", map_location=DEVICE))
+    trained_online_model.load_state_dict(torch.load("trained_model_weights/consistency_online_cm2.pth", map_location=DEVICE))
+    trained_ema_model.load_state_dict(torch.load("trained_model_weights/consistency_ema_cm2.pth", map_location=DEVICE))
 
 
     # Define Sampling Schedule
-    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
+    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 4.0, 3.0, 2.0], device=DEVICE)
 
     # Perform Sampling using Online Model
     trained_online_model.eval()
@@ -80,7 +85,7 @@ if __name__ == '__main__':
         ax.axis('off')
 
     plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('viz/online_generation.png')
+    plt.savefig('viz/online_generation_cm2.png')
 
 
     # Perform Sampling using EMA Model
@@ -101,4 +106,8 @@ if __name__ == '__main__':
         ax.axis('off')
 
     plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('viz/ema_generation.png')
+    plt.savefig('viz/1_step.png')
+
+
+
+    # TODO: Visualize the generation quality (FID score) vs number of sampling steps
