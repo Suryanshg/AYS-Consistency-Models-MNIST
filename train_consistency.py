@@ -4,7 +4,7 @@ import torch
 from tqdm import tqdm
 import torch.nn.functional as F
 from datasets.mnist_dataloader import get_mnist_dataloader
-from models.u_net import ConsistencyUNet
+from models.ConsistencyUNet import ConsistencyUNet
 from typing import Tuple, List
 import math
 import matplotlib.pyplot as plt
@@ -58,7 +58,7 @@ def train(
         # Calculate EMA Decay Rate (mu) for this epoch
         # As N grows (intervals get smaller), we want the EMA to update slower (higher mu).
         # Formula: exp(initial_N * log(mu_0) / N)
-        mu = math.exp(initial_N * math.log(0.95) / N)
+        mu = math.exp(initial_N * math.log(0.9) / N)
 
         # Track running_loss
         running_loss = 0.0
@@ -222,14 +222,14 @@ if __name__ == '__main__':
     ema_model.load_state_dict(online_model.state_dict())
 
     # Init Optimizer for Online Model
-    optimizer = torch.optim.Adam(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
+    optimizer = torch.optim.AdamW(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
 
     # Call the training loop
     trained_online_model, trained_ema_model, loss_history = train(online_model,
                                                                   ema_model,
                                                                   mnist_dataloader,
                                                                   optimizer,
-                                                                  num_epochs = 5)
+                                                                  num_epochs = 50)
 
 
     # Visualize the Loss Trajectory

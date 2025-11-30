@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
-from typing import List
 import math
-from models.u_net import ConsistencyUNet
+from models.ConsistencyUNet import ConsistencyUNet
 import matplotlib.pyplot as plt
 
 def sample(
@@ -51,28 +50,27 @@ if __name__ == '__main__':
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {DEVICE}")
 
-    # Init Backbone model
-    trained_model = ConsistencyUNet().to(DEVICE)
+    # Init Models
+    trained_online_model = ConsistencyUNet().to(DEVICE)
+    trained_ema_model = ConsistencyUNet().to(DEVICE)
 
-    # Load Weights into the Consistency Model
-    trained_model.load_state_dict(torch.load("trained_model_weights/consistency_ema.pth", map_location=DEVICE))
+    # Load Weights into the Consistency Models
+    trained_online_model.load_state_dict(torch.load("trained_model_weights/consistency_online.pth", map_location=DEVICE))
+    trained_ema_model.load_state_dict(torch.load("trained_model_weights/consistency_ema.pth", map_location=DEVICE))
 
 
-    # Perform Sampling
-    trained_model.eval()
+    # Define Sampling Schedule
+    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
+
+    # Perform Sampling using Online Model
+    trained_online_model.eval()
     with torch.no_grad():
         # Start with max noise (80.0)
         z_t = torch.randn(25, 1, 28, 28).to(DEVICE) * 80.0
 
-        # Define Sampling Schedule
-        sampling_schedule = torch.tensor([80.0, 20.0, 10.0, 5.0, 3.0, 1.0, 0.5, 0.1, 0.002], device=DEVICE)
-
-        sampled_imgs_tensor = sample(trained_model, z_t, sampling_schedule)        # (25, 1, 28, 28)
+        sampled_imgs_tensor = sample(trained_online_model, z_t, sampling_schedule)        # (25, 1, 28, 28)
     
     sampled_imgs_np = sampled_imgs_tensor.view(25, 28, 28).cpu().detach().numpy()
-
-    print(sampled_imgs_np.shape)
-
 
     # Plot all 25 imgs in a 5 by 5 collage
     # Plot the images
@@ -82,4 +80,25 @@ if __name__ == '__main__':
         ax.axis('off')
 
     plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('viz/consistency_5_steps_generation.png')
+    plt.savefig('viz/online_generation.png')
+
+
+    # Perform Sampling using EMA Model
+    trained_ema_model.eval()
+    with torch.no_grad():
+        # Start with max noise (80.0)
+        z_t = torch.randn(25, 1, 28, 28).to(DEVICE) * 80.0
+
+        sampled_imgs_tensor = sample(trained_ema_model, z_t, sampling_schedule)        # (25, 1, 28, 28)
+    
+    sampled_imgs_np = sampled_imgs_tensor.view(25, 28, 28).cpu().detach().numpy()
+
+    # Plot all 25 imgs in a 5 by 5 collage
+    # Plot the images
+    fig, axes = plt.subplots(5, 5, figsize=(8, 6))
+    for i, ax in enumerate(axes.flatten()):
+        ax.imshow(sampled_imgs_np[i], cmap='gray')
+        ax.axis('off')
+
+    plt.suptitle(f"25 Generated Digits", fontsize=20)
+    plt.savefig('viz/ema_generation.png')

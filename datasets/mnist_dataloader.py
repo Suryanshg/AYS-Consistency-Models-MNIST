@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 # Top-Level Transforms pipeline
 TRANSFORMS_PIPELINE = transforms.Compose(
     [
+        # transforms.Pad(2),
         transforms.ToTensor(),
         transforms.Normalize((0.5), (0.5)),
     ]
