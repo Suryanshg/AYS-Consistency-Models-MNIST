@@ -13,13 +13,26 @@ import math
 import matplotlib.pyplot as plt
 from eval_consistency import sample
 from fid import compute_fid_score
+from torchmetrics.image.fid import FrechetInceptionDistance
+
 
 # Determine Device for the whole session
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
+
+# Initialize the Inception Model for FID calculation
+fid = FrechetInceptionDistance(feature = 2048, normalize=True).to(DEVICE)
+
+
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
 # Lower "t" means low timestep, but also low noise levels.
+
+def precompute_real_fid_state(dataloader: DataLoader):
+    for x, _ in dataloader:
+        x = (x.to(DEVICE) * 0.5 + 0.5).repeat(1, 3, 1, 1)
+        x = F.interpolate(x, (299, 299), mode="bilinear")
+        fid.update(x, real=True)
 
 # ┌───────────────────────────────────────────────┐
 # │               TRAINING FUNCTION               │
@@ -125,30 +138,62 @@ def train(
             loss_history.append(loss.item())
             running_loss += loss.item()
             steps += 1
+
+            # # Prepare the batch of real images for FID calculation at the end of this epoch
+            # real_images = (x * 0.5 + 0.5).repeat(1, 3, 1, 1)
+            # fid.update(F.interpolate(real_images, (299, 299), mode="bilinear"), real=True)
+
+            # # Prepare a batch of fake images for FID calculation at the end of this epoch
+            # with torch.no_grad():
+            #     fake_images = sample(online_model, eval_sampling_schedule, device=DEVICE, shape = x.shape)
+            # fake_images = fake_images.repeat(1, 3, 1, 1)
+            # fid.update(F.interpolate(fake_images, (299, 299), mode="bilinear"), real=False)
             
         # Epoch Over
         # Calculate Avg Loss
         avg_loss = (running_loss / steps)
 
-        # Evaluate Online Model with respect to FID Score 
+        # # Reset Metric States for FID calculation
+        # fid.reset()
+
+        # # Load Real Data FID State into fid module
+        # fid.load_state_dict(torch.load("real_fid_state.pth", map_location=DEVICE))
+
+        # # Generate a small Batch of Fake Images
+        # with torch.no_grad():
+        #     fake_images = sample(online_model, 
+        #                          eval_sampling_schedule, 
+        #                          device = DEVICE, 
+        #                          shape = (128, 1, 28, 28))
+        # fake_images = fake_images.repeat(1, 3, 1, 1)
+        # fid.update(F.interpolate(fake_images, (299, 299), mode="bilinear"), real=False)
+
+        # # Calculate FID of fake images against the real dataset
+        # fid_score = fid.compute().item()
+
+        # # Accumulate FID Scores for every epoch
+        # fid_scores.append(fid_score)
+
+
+        # # Evaluate Online Model with respect to FID Score 
         
-        # Use the last minibatch as the real images for reference
-        # Convert to [0, 1] range
-        real_images = (x * 0.5 + 0.5)
+        # # Use the last minibatch as the real images for reference
+        # # Convert to [0, 1] range
+        # real_images = (x * 0.5 + 0.5)
 
-        # tqdm.write(f"Range of values in real images: [{torch.min(real_images)}, {torch.max(real_images)}]")
+        # # tqdm.write(f"Range of values in real images: [{torch.min(real_images)}, {torch.max(real_images)}]")
 
-        # Generate a batch of fake examples
-        with torch.no_grad():
-            fake_images = sample(online_model, eval_sampling_schedule, device=DEVICE, shape = real_images.shape)
+        # # Generate a batch of fake examples
+        # with torch.no_grad():
+        #     fake_images = sample(online_model, eval_sampling_schedule, device=DEVICE, shape = real_images.shape)
 
-        # tqdm.write(f"Range of values in fake images: [{torch.min(fake_images)}, {torch.max(fake_images)}]")
+        # # tqdm.write(f"Range of values in fake images: [{torch.min(fake_images)}, {torch.max(fake_images)}]")
 
-        # Compute FID Score using real and fake images
-        fid_score = compute_fid_score(real_images=real_images, fake_images=fake_images)
+        # # Compute FID Score using real and fake images
+        # fid_score = compute_fid_score(real_images=real_images, fake_images=fake_images)
 
-        # Accumulate FID Scores for every epoch
-        fid_scores.append(fid_score)
+        # # Accumulate FID Scores for every epoch
+        # fid_scores.append(fid_score)
 
         # Logging for every epoch
         tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, FID: {fid_score:.4f}, N: {N}, mu: {mu:.4f}")
