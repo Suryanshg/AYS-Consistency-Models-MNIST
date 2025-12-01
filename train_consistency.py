@@ -11,6 +11,12 @@ from models.ConsistencyUNet2 import ConsistencyUNet
 from typing import Tuple, List
 import math
 import matplotlib.pyplot as plt
+from eval_consistency import sample
+from fid import compute_fid_score
+
+# Determine Device for the whole session
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {DEVICE}")
 
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
 # Lower "t" means low timestep, but also low noise levels.
@@ -45,8 +51,12 @@ def train(
     # Set the online model in training mode
     online_model.train()
 
-    # Init list to accumulate loss history
+    # Init list to accumulate loss history and FID Scores
     loss_history = []
+    fid_scores = []
+
+    # Init Eval Sampling Schedule
+    eval_sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
 
     # Iterate num_epochs times
     for epoch in tqdm(range(num_epochs)):
@@ -116,18 +126,38 @@ def train(
             running_loss += loss.item()
             steps += 1
             
-        # Epoch Over; Calculate Avg Loss
+        # Epoch Over
+        # Calculate Avg Loss
         avg_loss = (running_loss / steps)
 
-        # Add Logging for every epoch
-        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, N: {N}, mu:{mu}")
+        # Evaluate Online Model with respect to FID Score 
+        
+        # Use the last minibatch as the real images for reference
+        # Convert to [0, 1] range
+        real_images = (x * 0.5 + 0.5)
 
+        # tqdm.write(f"Range of values in real images: [{torch.min(real_images)}, {torch.max(real_images)}]")
+
+        # Generate a batch of fake examples
+        with torch.no_grad():
+            fake_images = sample(online_model, eval_sampling_schedule, device=DEVICE, shape = real_images.shape)
+
+        # tqdm.write(f"Range of values in fake images: [{torch.min(fake_images)}, {torch.max(fake_images)}]")
+
+        # Compute FID Score using real and fake images
+        fid_score = compute_fid_score(real_images=real_images, fake_images=fake_images)
+
+        # Accumulate FID Scores for every epoch
+        fid_scores.append(fid_score)
+
+        # Logging for every epoch
+        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, FID: {fid_score:.4f}, N: {N}, mu: {mu:.4f}")
 
         # TODO: Eval Model after every epoch for each N and how it performs
         # TODO: Viz about training performance for both models
 
-    # Return trained models and loss history
-    return online_model, ema_model, loss_history
+    # Return trained models, loss history, and fid scores for each epoch
+    return online_model, ema_model, loss_history, fid_scores
 
 
 # ┌───────────────────────────────────────────────┐
@@ -190,27 +220,30 @@ def get_karras_time_schedule(N: int,
     # Return the Karras Schedule
     return karras_schedule
 
-
 def visualize_loss_trajectory(loss_history: List[float]):
     plt.figure(figsize=(6, 4))
-    plt.plot(loss_history, label="Loss Trajectory", color="blue")
-    plt.xlabel("Epochs")
+    plt.plot(loss_history, color="blue")
+    plt.xlabel("Iterations")
     plt.ylabel("MSE Loss")
     plt.title("Consistency Model: Loss Trajectory")
-    plt.legend()
     plt.grid(True, linestyle="--", alpha=0.3)
     plt.savefig('viz/consistency_loss_trajectory.png')
 
+
+def visualize_fid_trajectory(fid_scores: List[float]):
+    plt.figure(figsize=(6, 4))
+    plt.plot(fid_scores, color="blue")
+    plt.xlabel("Epochs")
+    plt.ylabel("FID")
+    plt.title("Consistency Model: FID")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.savefig('viz/consistency_fid_trajectory.png')
 
 
 # ┌───────────────────────────────────────────────┐
 # │                 DRIVER CODE                   │
 # └───────────────────────────────────────────────┘
 if __name__ == '__main__':
-
-    # Determine Device for the whole session
-    DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {DEVICE}")
 
     # Load MNIST Dataloader
     mnist_dataloader = get_mnist_dataloader()
@@ -232,15 +265,18 @@ if __name__ == '__main__':
     optimizer = torch.optim.AdamW(online_model.parameters(), lr = 1e-4) # TODO: Remove hardcoding of learning rate here
 
     # Call the training loop
-    trained_online_model, trained_ema_model, loss_history = train(online_model,
-                                                                  ema_model,
-                                                                  mnist_dataloader,
-                                                                  optimizer,
-                                                                  num_epochs = 50)
+    trained_online_model, trained_ema_model, loss_history, fid_scores = train(online_model,
+                                                                              ema_model,
+                                                                              mnist_dataloader,
+                                                                              optimizer,
+                                                                              num_epochs = 50)
 
 
     # Visualize the Loss Trajectory
     visualize_loss_trajectory(loss_history)
+
+    # Visualize the FID Trajectory
+    visualize_fid_trajectory(fid_scores)
 
     # Save the EMA Model weights
     torch.save(trained_ema_model.state_dict(), "trained_model_weights/consistency_ema_cm2.pth")

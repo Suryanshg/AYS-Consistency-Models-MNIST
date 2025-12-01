@@ -3,6 +3,7 @@ import torch.nn as nn
 from torch.nn import Sequential
 import math
 from typing import Tuple
+from torchsummary import summary
 
 
 # ┌───────────────────────────────────────────────┐
@@ -173,3 +174,9 @@ def double_conv(in_channels: int, out_channels: int) -> Sequential:
         # nn.ReLU(inplace=True)
         nn.SiLU()
     )
+
+
+if __name__ == '__main__':
+    cm = ConsistencyUNet()
+    # TODO: This does not work, please fix this
+    summary(cm, input_size=[(1, 1, 28, 28), (1,)])

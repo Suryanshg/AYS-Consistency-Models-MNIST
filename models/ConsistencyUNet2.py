@@ -142,3 +142,8 @@ def sinusoidal_embedding(times: torch.Tensor, dim: int) -> torch.Tensor:
     emb = log_times.view(-1, 1) * emb.view(1, -1)
     emb = torch.cat([torch.sin(emb), torch.cos(emb)], dim=1)
     return emb
+
+
+if __name__ == '__main__':
+    cm = ConsistencyUNet()
+    print(cm)
