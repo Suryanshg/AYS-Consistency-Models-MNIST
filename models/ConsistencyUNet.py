@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.nn import Sequential
 import math
 from typing import Tuple
-from torchsummary import summary
+from torchinfo import summary
 
 
 # ┌───────────────────────────────────────────────┐
@@ -178,5 +178,10 @@ def double_conv(in_channels: int, out_channels: int) -> Sequential:
 
 if __name__ == '__main__':
     cm = ConsistencyUNet()
-    # TODO: This does not work, please fix this
-    summary(cm, input_size=[(1, 1, 28, 28), (1,)])
+
+    input_data = (
+        torch.randn(1, 1, 28, 28),      # image
+        torch.rand(1,).clamp_min(1e-6),  # time > 0 to avoid log(0)
+    )
+
+    summary(cm, input_data=input_data)

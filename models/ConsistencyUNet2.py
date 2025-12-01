@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import math
 from typing import Tuple
+from torchinfo import summary
 
 # ┌───────────────────────────────────────────────┐
 # │                 HELPER NETWORK                │
@@ -146,4 +147,10 @@ def sinusoidal_embedding(times: torch.Tensor, dim: int) -> torch.Tensor:
 
 if __name__ == '__main__':
     cm = ConsistencyUNet()
-    print(cm)
+
+    input_data = (
+        torch.randn(1, 1, 28, 28),      # image
+        torch.rand(1,).clamp_min(1e-6),  # time > 0 to avoid log(0)
+    )
+
+    summary(cm, input_data=input_data)

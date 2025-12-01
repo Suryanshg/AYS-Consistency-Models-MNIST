@@ -7,8 +7,8 @@ requires-python = ">=3.12"
 dependencies = [
     "matplotlib>=3.10.7",
     "torch>=2.9.1",
+    "torchinfo>=1.8.0",
     "torchmetrics[image]>=1.8.2",
-    "torchsummary>=1.5.1",
     "torchvision>=0.24.1",
     "tqdm>=4.67.1",
 ]
