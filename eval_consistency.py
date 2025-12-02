@@ -108,8 +108,8 @@ if __name__ == '__main__':
     trained_ema_model = ConsistencyUNet().to(DEVICE)
 
     # Load Weights into the Consistency Models
-    trained_online_model.load_state_dict(torch.load("trained_model_weights/consistency_online_cm2.pth", map_location=DEVICE))
-    trained_ema_model.load_state_dict(torch.load("trained_model_weights/consistency_ema_cm2.pth", map_location=DEVICE))
+    trained_online_model.load_state_dict(torch.load("trained_model_weights/online_cm.pth", map_location=DEVICE))
+    trained_ema_model.load_state_dict(torch.load("trained_model_weights/ema_cm.pth", map_location=DEVICE))
 
     # Define Sampling Schedule
     sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 0.002], device=DEVICE)

@@ -19,9 +19,9 @@ from torchmetrics.image.fid import FrechetInceptionDistance
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
+# TODO: Instead of FID, a better metric will be classification accuracy of a pretrained model on MNIST
 
 # Initialize the Inception Model for FID calculation
-# TODO: Test with 2048 features later
 fid_metric = FrechetInceptionDistance(feature = 2048, normalize=True).to(DEVICE)
 
 
@@ -328,7 +328,7 @@ if __name__ == '__main__':
     visualize_fid_trajectory(fid_scores)
 
     # Save the EMA Model weights
-    torch.save(trained_ema_model.state_dict(), "trained_model_weights/consistency_ema_cm2.pth")
+    torch.save(trained_ema_model.state_dict(), "trained_model_weights/ema_cm.pth")
 
     # Save the Online Model weights
-    torch.save(trained_online_model.state_dict(), "trained_model_weights/consistency_online_cm2.pth")
+    torch.save(trained_online_model.state_dict(), "trained_model_weights/online_cm.pth")
