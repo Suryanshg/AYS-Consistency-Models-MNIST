@@ -22,7 +22,7 @@ print(f"Using device: {DEVICE}")
 # TODO: Instead of FID, a better metric will be classification accuracy of a pretrained model on MNIST
 
 # Initialize the Inception Model for FID calculation
-fid_metric = FrechetInceptionDistance(feature = 2048, normalize=True).to(DEVICE)
+fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(DEVICE)
 
 
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
@@ -96,7 +96,7 @@ def train(
         num_epochs: int = 10,
         initial_N: int = 2,
         final_N: int = 150
-        ) -> Tuple[nn.Module, nn.Module, List]:
+        ) -> Tuple[nn.Module, nn.Module, List, List]:
     """
     TODO
 
