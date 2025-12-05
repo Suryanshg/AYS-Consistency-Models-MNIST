@@ -58,6 +58,7 @@ class ConsistencyUNet(nn.Module):
                  in_channels: int = 1, 
                  out_channels: int = 1, 
                  time_embedding_dim: int = 64,
+                 feature_map_dim: int = 64,
                  sigma_data: float = 0.5,
                  epsilon: float = 0.002):
         
@@ -67,22 +68,22 @@ class ConsistencyUNet(nn.Module):
         self.epsilon = epsilon
 
         # Initial Convolution (Scale up from input channels)
-        self.init_conv = nn.Conv2d(in_channels, 64, 3, padding=1)
+        self.init_conv = nn.Conv2d(in_channels, feature_map_dim, 3, padding=1)
 
         # Downsampling Layers with time_embedding injection in every block
-        self.dconv_down1 = TimeAwareConv(64, 64, time_embedding_dim)
-        self.dconv_down2 = TimeAwareConv(64, 128, time_embedding_dim)
-        self.dconv_down3 = TimeAwareConv(128, 256, time_embedding_dim)
+        self.dconv_down1 = TimeAwareConv(feature_map_dim,feature_map_dim, time_embedding_dim)
+        self.dconv_down2 = TimeAwareConv(feature_map_dim, feature_map_dim * 2, time_embedding_dim)
+        self.dconv_down3 = TimeAwareConv(feature_map_dim * 2, feature_map_dim * 4, time_embedding_dim)
 
         self.avgpool = nn.AvgPool2d(2)
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
         # Upsampling Layers with time_embedding injection in every block
-        self.dconv_up2 = TimeAwareConv(256 + 128, 128, time_embedding_dim)
-        self.dconv_up1 = TimeAwareConv(128 + 64, 64, time_embedding_dim)
+        self.dconv_up2 = TimeAwareConv(feature_map_dim * 4 + feature_map_dim * 2, feature_map_dim * 2, time_embedding_dim)
+        self.dconv_up1 = TimeAwareConv(feature_map_dim * 2 + feature_map_dim, feature_map_dim, time_embedding_dim)
         
         # Final Convolution (Scale down to output channels)
-        self.conv_last = nn.Conv2d(64, out_channels, 1)
+        self.conv_last = nn.Conv2d(feature_map_dim, out_channels, 1)
 
 
     def get_scaling_factors(self, t: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
