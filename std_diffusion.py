@@ -18,7 +18,7 @@ DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {DEVICE}")
 
 # Initialize the Inception Model for FID calculation
-fid_metric = FrechetInceptionDistance(feature=2048, normalize=True).to(DEVICE)
+fid_metric = FrechetInceptionDistance(feature=64, normalize=True).to(DEVICE)
 
 
 # ┌───────────────────────────────────────────────┐
@@ -61,7 +61,7 @@ def get_cosine_schedule(num_steps: int,
     return torch.clip(betas, 0.0001, 0.9999)
 
 
-def precompute_diffusion_constants(betas: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def precompute_diffusion_constants(betas: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
     """
     Precomputes alpha values and derived constants for the diffusion process.
     
@@ -69,7 +69,7 @@ def precompute_diffusion_constants(betas: torch.Tensor) -> Tuple[torch.Tensor, t
         betas (torch.Tensor): Schedule of betas
         
     Returns:
-        Tuple[torch.Tensor, torch.Tensor, torch.Tensor]: alphas, alphas_cumprod, sqrt_alphas_cumprod_t
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]: alphas, alphas_cumprod, sqrt_alphas_cumprod_t, sqrt_one_minus_alphas_cumprod_t
     """
     alphas = 1 - betas
     alphas_cumprod = torch.cumprod(alphas, dim=0)
@@ -110,8 +110,9 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
 
 
 def evaluate_fid(model: nn.Module,
-                 sqrt_alphas_cumprod_t: torch.Tensor,
-                 sqrt_one_minus_alphas_cumprod_t: torch.Tensor,
+                 betas: torch.Tensor,
+                 alphas: torch.Tensor,
+                 alphas_cumprod: torch.Tensor,
                  timesteps: List[int],
                  num_batches: int = 10,
                  batch_size: int = 128) -> float:
@@ -120,8 +121,9 @@ def evaluate_fid(model: nn.Module,
     
     Args:
         model (nn.Module): The trained denoising network
-        sqrt_alphas_cumprod_t (torch.Tensor): Precomputed sqrt of cumulative alphas
-        sqrt_one_minus_alphas_cumprod_t (torch.Tensor): Precomputed sqrt(1 - cumulative alphas)
+        betas (torch.Tensor): Beta schedule
+        alphas (torch.Tensor): Alpha values
+        alphas_cumprod (torch.Tensor): Cumulative product of alphas
         timesteps (List[int]): Timesteps to use for reverse process
         num_batches (int): Number of batches to generate
         batch_size (int): Batch size for generation
@@ -143,14 +145,32 @@ def evaluate_fid(model: nn.Module,
                 # Predict noise
                 predicted_noise = model(x_t, t.float())
                 
-                # Reverse step
-                if t_idx > 0:
-                    noise = torch.randn_like(x_t)
-                else:
-                    noise = 0
+                # Get diffusion parameters for this timestep
+                alpha_t = alphas[t_idx]
+                alpha_cumprod_t = alphas_cumprod[t_idx]
+                beta_t = betas[t_idx]
                 
-                x_t = (1 / torch.sqrt(1 - (sqrt_one_minus_alphas_cumprod_t[t] / sqrt_alphas_cumprod_t[t]) ** 2).reshape(-1, 1, 1, 1)) * \
-                      (x_t - (sqrt_one_minus_alphas_cumprod_t[t] / sqrt_alphas_cumprod_t[t]).reshape(-1, 1, 1, 1) * predicted_noise)
+                if t_idx > 0:
+                    alpha_cumprod_prev = alphas_cumprod[t_idx - 1]
+                else:
+                    alpha_cumprod_prev = torch.tensor(1.0, device=DEVICE)
+                
+                # Predict x_0 from x_t
+                pred_x0 = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
+                pred_x0 = torch.clamp(pred_x0, -1, 1)
+                
+                # Compute mean of reverse distribution
+                coef1 = torch.sqrt(alpha_cumprod_prev) * beta_t / (1 - alpha_cumprod_t)
+                coef2 = torch.sqrt(alpha_t) * (1 - alpha_cumprod_prev) / (1 - alpha_cumprod_t)
+                mean = coef1 * pred_x0 + coef2 * x_t
+                
+                # Add noise
+                if t_idx > 0:
+                    variance = (1 - alpha_cumprod_prev) / (1 - alpha_cumprod_t) * beta_t
+                    noise = torch.randn_like(x_t)
+                    x_t = mean + torch.sqrt(variance) * noise
+                else:
+                    x_t = mean
             
             # Process Fake images
             fake_images = (x_t * 0.5 + 0.5).clamp(0, 1)
@@ -231,6 +251,11 @@ def train(
             x = x.to(DEVICE)                                    # (batch_size, 1, H, W)
             batch_size = x.shape[0]
 
+            # Check for NaN in input
+            if torch.isnan(x).any():
+                print("WARNING: NaN detected in input data!")
+                continue
+
             # Sample random timesteps for each sample in the batch
             t = torch.randint(0, num_diffusion_steps, (batch_size,), device=DEVICE)  # (batch_size,)
 
@@ -244,16 +269,43 @@ def train(
             # Forward diffusion process: x_t = sqrt(alpha_bar_t) * x_0 + sqrt(1 - alpha_bar_t) * eps
             x_t = sqrt_alpha_t * x + sqrt_one_minus_alpha_t * eps
 
+            # Check for NaN after forward diffusion
+            if torch.isnan(x_t).any():
+                print(f"WARNING: NaN detected in x_t at timesteps {t}")
+                continue
+
             # Predict noise using model
             predicted_noise = model(x_t, t.float())
+
+            # Check for NaN in predictions
+            if torch.isnan(predicted_noise).any():
+                print("WARNING: NaN detected in model predictions!")
+                continue
 
             # Compute MSE loss between predicted and actual noise
             loss = F.mse_loss(predicted_noise, eps)
 
+            # Check for NaN in loss
+            if torch.isnan(loss):
+                print("WARNING: NaN loss detected! Skipping batch.")
+                continue
+
             # Backward pass and optimizer step
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
+            # Check for NaN gradients
+            has_nan_grad = False
+            for name, param in model.named_parameters():
+                if param.grad is not None and torch.isnan(param.grad).any():
+                    print(f"WARNING: NaN gradient in {name}")
+                    has_nan_grad = True
+                    break
+            
+            if has_nan_grad:
+                continue
+            
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 5.0)  # Increased from 1.0
             optimizer.step()
 
             # Accumulate Running Loss
@@ -263,15 +315,19 @@ def train(
 
         # Epoch Over
         # Calculate Avg Loss
-        avg_loss = running_loss / steps
+        if steps > 0:
+            avg_loss = running_loss / steps
+        else:
+            avg_loss = float('nan')
 
         # Precompute FID Metrics for Real Data
         precompute_real_stats(dataloader, num_batches=10)
 
         # Compute FID Score
         fid_score = evaluate_fid(model,
-                                 sqrt_alphas_cumprod_t,
-                                 sqrt_one_minus_alphas_cumprod_t,
+                                 betas,
+                                 alphas,
+                                 alphas_cumprod,
                                  eval_timesteps,
                                  num_batches=10,
                                  batch_size=128)
@@ -337,7 +393,7 @@ if __name__ == '__main__':
         model,
         mnist_dataloader,
         optimizer,
-        num_epochs=50,
+        num_epochs=10,
         num_diffusion_steps=1000,
         schedule_type="linear"
     )
