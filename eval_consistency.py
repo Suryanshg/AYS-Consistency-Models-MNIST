@@ -1,8 +1,10 @@
 import torch
 import torch.nn as nn
 import math
+
 # from models.ConsistencyUNet import ConsistencyUNet
 from models.ConsistencyUNet2 import ConsistencyUNet
+
 import matplotlib.pyplot as plt
 from datasets.mnist_dataloader import get_mnist_dataloader
 from torchmetrics.image.fid import FrechetInceptionDistance
@@ -40,6 +42,9 @@ def sample(
 
         # Predict x_hat using noised image and t_tensor
         x_hat = online_model(z_t, t_tensor)
+
+    # TODO: Test if this improves performance or not
+    # x_hat = torch.tanh(x_hat)
     
     # De-normalize the image
     x_hat = (x_hat * 0.5 + 0.5)
@@ -55,8 +60,7 @@ def calculate_test_fid(model, dataloader):
     print("Calculating Test FID on 10k Images...")
     
     # Initialize High-Res Metric
-    # We need 2048 for standard comparability
-    fid_2048 = FrechetInceptionDistance(feature=2048, normalize=True).to(DEVICE)
+    fid_2048 = FrechetInceptionDistance(feature=64, normalize=True).to(DEVICE)
     
     # Feed 10,000 REAL Images
     # We iterate through the dataloader until we have 10k images
@@ -77,7 +81,7 @@ def calculate_test_fid(model, dataloader):
     model.eval()
     fake_count = 0
     batch_size = 128
-    schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 0.002], device=DEVICE)
+    schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
     
     with torch.no_grad():
         while fake_count <= 10000:
@@ -112,8 +116,8 @@ if __name__ == '__main__':
     trained_ema_model.load_state_dict(torch.load("trained_model_weights/ema_cm.pth", map_location=DEVICE))
 
     # Define Sampling Schedule
-    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 0.002], device=DEVICE)
-    # sampling_schedule = torch.tensor([40.0], device=DEVICE)
+    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0], device=DEVICE)
 
     # Perform Sampling using Online Model
     trained_online_model.eval()
@@ -135,7 +139,7 @@ if __name__ == '__main__':
     print("Saved a collage of 25 Generated Images")
 
     # Calulcate test FID on 10k images
-    calculate_test_fid(trained_online_model, mnist_dataloader)
+    # calculate_test_fid(trained_online_model, mnist_dataloader)
 
 
 

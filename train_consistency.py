@@ -22,7 +22,7 @@ print(f"Using device: {DEVICE}")
 # TODO: Instead of FID, a better metric will be classification accuracy of a pretrained model on MNIST
 
 # Initialize the Inception Model for FID calculation
-fid_metric = FrechetInceptionDistance(feature = 2048, normalize=True).to(DEVICE)
+fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(DEVICE)
 
 
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
@@ -68,11 +68,9 @@ def evaluate_fid(model: nn.Module, num_batches = 10, batch_size = 128) -> float:
 
     with torch.no_grad():
         for _ in range(num_batches):
-            # 1. Generate Noise
-            # z = torch.randn(batch_size, 1, 32, 32).to(DEVICE) * 80.0
             
-            # 2. Generate Images
-            fake_images = sample(model, schedule, DEVICE, shape = (batch_size, 1, 28, 28)) # Returns [-1, 1] or [0, 1] depending on your sample func
+            # Generate Images
+            fake_images = sample(model, schedule, DEVICE, shape = (batch_size, 1, 28, 28))
             
             # Process Fake images
             fake_images = fake_images.repeat(1, 3, 1, 1)
@@ -195,12 +193,13 @@ def train(
         precompute_real_stats(dataloader, num_batches=10)
 
         # Compute FID Score using Online Model
-        fid_score = evaluate_fid(online_model, num_batches=10, batch_size=128)
+        fid_score = evaluate_fid(online_model, num_batches=10, batch_size=BATCH_SIZE)
 
         fid_scores.append(fid_score)
 
         # Logging for every epoch
         tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, FID: {fid_score:.4f}, N: {N}, mu: {mu:.4f}")
+        # tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, N: {N}, mu: {mu:.4f}")
 
         # TODO: Eval Model after every epoch for each N and how it performs
         # TODO: Viz about training performance for both models
@@ -293,9 +292,10 @@ def visualize_fid_trajectory(fid_scores: List[float]):
 # │                 DRIVER CODE                   │
 # └───────────────────────────────────────────────┘
 if __name__ == '__main__':
+    BATCH_SIZE = 32
 
     # Load MNIST Dataloader
-    mnist_dataloader = get_mnist_dataloader()
+    mnist_dataloader = get_mnist_dataloader(batch_size=BATCH_SIZE)
     
     # Print Dataset Summary
     print(f"{'-' * 10} DATASET INFO {'-' * 10}\n")
