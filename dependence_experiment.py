@@ -3,6 +3,7 @@ import random
 import time
 
 import numpy as np
+import pandas as pd
 import torch
 from matplotlib import pyplot as plt
 import seaborn as sns
@@ -215,12 +216,37 @@ def calculate_point_correlations(x_t_grid):
 
     return correlations
 
-def dependence_experiment():
-    # Experiment constants
-    num_z_t = 10
-    num_points = 5
-    schedule = [80.0, 40, 10, 0.002]
+def calculate_diversity_scores(x_t_grid):
+    # x_t_grid: (num_z_t, num_points, C, H, W)
+    B, N, C, H, W = x_t_grid.shape
+    diversities = []
 
+    for i in range(B):
+        imgs = x_t_grid[i].reshape(N, -1)
+        diffs = imgs.unsqueeze(1) - imgs.unsqueeze(0)
+        dists = torch.linalg.norm(diffs, dim=2)   # L2 Norm
+
+        triu = torch.triu_indices(N, N, offset=1)
+        mean_dist = dists[triu[0], triu[1]].mean().item()
+        diversities.append(mean_dist)
+
+    return diversities
+
+def calculate_pca_diversity(pca_grid):
+    B, N, D = pca_grid.shape
+    diversities = []
+
+    for i in range(B):
+        pts = pca_grid[i]                                      # shape: (num_points, D)
+        diffs = pts[:, np.newaxis, :] - pts[np.newaxis, :, :]  # pairwise differences
+        dists = np.linalg.norm(diffs, axis=2)                  # L2 norm
+        triu_indices = np.triu_indices(N, k=1)
+        mean_dist = np.mean(dists[triu_indices])
+        diversities.append(mean_dist)
+
+    return diversities
+
+def evaluate_dependence(schedule, plot=False, num_z_t=10, num_points=5):
     # Step 1: Generate an experiment grid
     z_t_grid = make_batched_zT(N=num_z_t, experiment_cluster_size=num_points)
 
@@ -231,15 +257,65 @@ def dependence_experiment():
     x_t_grid = x_t_grid.reshape(num_z_t, num_points, *x_t_grid.shape[1:])
     pca_grid = calculate_pca(x_t_grid)
 
+    diversity_scores = calculate_diversity_scores(x_t_grid)
+    pca_diversity_scores = calculate_pca_diversity(pca_grid.reshape(num_z_t, num_points, pca_grid.shape[1]))
+
     # Show correlation
     correlations = calculate_point_correlations(x_t_grid)
     correlations_str = [f"z_t_{i} correlation: {corr}" for i,corr in enumerate(correlations)]
     print(correlations_str)
-    print(f"Average Correlation: {torch.tensor(correlations).mean().item()}")
+    avg_corr = torch.tensor(correlations).mean().item()
+    div_score = sum(diversity_scores) / len(diversity_scores)
+    pca_div_score = sum(pca_diversity_scores) / len(pca_diversity_scores)
+    print(f"Average Correlation: {avg_corr}")
+    print("Avg Diversity Scores:", div_score)
+    print("Avg PCA diversity:", pca_div_score)
 
     # Visualize outputs
-    plot_grid_images_pca(x_t_grid, pca_grid)
-    plot_grid_images(x_t_grid)
+    if plot:
+        plot_grid_images_pca(x_t_grid, pca_grid)
+        plot_grid_images(x_t_grid)
+
+    return avg_corr, div_score, pca_div_score
+
+
+def dependence_experiment(plot=False, optimize_by="avg_corr", N_points=12, n_candidates=7):
+    schedule = [80.0]
+    history = []  # records: [{"N": int, "candidate_idx": int, "avg_corr":float, "div_score":float, "pca_div_score":float}]
+
+    while len(schedule) < N_points:
+        current_min = min(schedule)
+
+        # Generate n_candidates equally spaced distances below current_max
+        candidate_distances = np.linspace(current_min * 0.99, current_min * 0.01, n_candidates).astype(np.float32)
+        candidate_distances = [d for d in candidate_distances if d > 0.002 and d not in schedule]
+
+        if len(candidate_distances) == 0:
+            print("No valid candidates remaining, stopping iteration.")
+            break
+
+        # Evaluate candidates and store metrics with candidate index
+        step_results = []
+        for idx, d in enumerate(candidate_distances):
+            avg_corr, div_score, pca_div_score = evaluate_dependence(sorted(schedule + [d], reverse=True), plot=False)
+            step_results.append({
+                "N": len(schedule) + 1,
+                "candidate": d,
+                "avg_corr": avg_corr,
+                "div_score": div_score,
+                "pca_div_score": pca_div_score
+            })
+
+        # Add step results to history
+        history.extend(step_results)
+
+        # Pick candidate with highest correlation
+        best_candidate = float(candidate_distances[np.argmax([r[optimize_by] for r in step_results])])
+        schedule.append(best_candidate)
+        schedule.sort(reverse=True)
+
+    return history, schedule
+
 
 def schedule_length_experiment():
     schedule_full = [80., 75., 70., 65., 60., 55., 50.,
@@ -297,6 +373,38 @@ def generate_schedule_length_plot(fid_scores, time_deltas):
     return sweet_idx
 
 
+def generate_correlation_diversity_plot(data):
+    df = pd.DataFrame(data)
+    mean_df = df.groupby("N")[["avg_corr", "div_score", "pca_div_score"]].max().reset_index() # Max across candidates
+    x_vals = mean_df["N"]
+
+    fig, ax = plt.subplots()
+
+    # Plot correlation on left axis
+    sns.lineplot(x=x_vals, y=mean_df["avg_corr"], label="Correlation", color="blue", ax=ax)
+    ax.set_ylabel("Correlation (0-1)", color="blue")
+    ax.tick_params(axis="y", labelcolor="blue")
+
+    # Plot diversity and PCA diversity on right axis
+    ax2 = ax.twinx()
+    sns.lineplot(x=x_vals, y=mean_df["div_score"], label="Diversity", color="green", ax=ax2)
+    sns.lineplot(x=x_vals, y=mean_df["pca_div_score"], label="PCA Diversity", color="orange", ax=ax2)
+    ax2.set_ylabel("Diversity Metrics (0-1 normalized)", color="black")
+    ax2.tick_params(axis="y", labelcolor="black")
+
+    ax.set_xlabel("N (schedule size)")
+    ax.set_xticks(x_vals)
+    fig.suptitle("Average Correlation and Diversity Metrics per N")
+    fig.tight_layout()
+
+    # Combine legends
+    lines, labels = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    ax2.legend(lines + lines2, labels + labels2, loc="upper right")
+
+    plt.show()
+
+
 if __name__ == '__main__':
     DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -310,8 +418,10 @@ if __name__ == '__main__':
     cm_model.load_state_dict(torch.load("trained_model_weights/consistency_online_cm2.pth", map_location=DEVICE))
 
     print("Running schedule size experiment...")
-    fid_scores, time_deltas = schedule_length_experiment()
-    generate_schedule_length_plot(fid_scores, time_deltas)
+    #fid_scores, time_deltas = schedule_length_experiment()
+    #generate_schedule_length_plot(fid_scores, time_deltas)
 
     print("Running correlation dependence experiment...")
-    #dependence_experiment()
+    experiment_results, schedule = dependence_experiment()
+    print(schedule)
+    generate_correlation_diversity_plot(experiment_results)
