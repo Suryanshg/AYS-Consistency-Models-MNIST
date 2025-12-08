@@ -59,7 +59,7 @@ def calculate_test_fid(model, dataloader):
     fid_2048 = FrechetInceptionDistance(feature=2048, normalize=True).to(DEVICE)
     
     # Feed 10,000 REAL Images
-    # We iterate through the dataloader until we have 10k images
+    # We iterate through the dataloader until we have 10k plots
     print("Processing Real Images...")
     real_count = 0
     for x, _ in dataloader:
@@ -124,7 +124,7 @@ if __name__ == '__main__':
     sampled_imgs_np = sampled_imgs_tensor.view(25, 28, 28).cpu().detach().numpy()
 
     # Plot all 25 imgs in a 5 by 5 collage
-    # Plot the images
+    # Plot the plots
     fig, axes = plt.subplots(5, 5, figsize=(8, 6))
     for i, ax in enumerate(axes.flatten()):
         ax.imshow(sampled_imgs_np[i], cmap='gray')
@@ -134,7 +134,7 @@ if __name__ == '__main__':
     plt.savefig('viz/generation.png')
     print("Saved a collage of 25 Generated Images")
 
-    # Calulcate test FID on 10k images
+    # Calulcate test FID on 10k plots
     calculate_test_fid(trained_online_model, mnist_dataloader)
 
 

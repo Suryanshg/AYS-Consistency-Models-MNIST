@@ -31,7 +31,7 @@ fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(DEVICE)
 
 def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
     """
-    Feeds real images into the FID metric to update the 'real' statistics.
+    Feeds real plots into the FID metric to update the 'real' statistics.
     """
     fid_metric.reset()
     
@@ -42,7 +42,7 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
         # Convert range from [-1, 1] to [0, 1]
         x = (x * 0.5) + 0.5
 
-        # Repeat Grayscale to look like RGB Images (as InceptionV3 expects RGB images)
+        # Repeat Grayscale to look like RGB Images (as InceptionV3 expects RGB plots)
         x = x.repeat(1, 3, 1, 1)
 
         # Resize to 299x299 (Required by InceptionV3)
@@ -59,7 +59,7 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
 
 def evaluate_fid(model: nn.Module, num_batches = 10, batch_size = 128) -> float:
     """
-    Generates fake images and computes FID against the pre-computed real stats.
+    Generates fake plots and computes FID against the pre-computed real stats.
     """
     model.eval()
     
@@ -74,7 +74,7 @@ def evaluate_fid(model: nn.Module, num_batches = 10, batch_size = 128) -> float:
             # 2. Generate Images
             fake_images = sample(model, schedule, DEVICE, shape = (batch_size, 1, 28, 28)) # Returns [-1, 1] or [0, 1] depending on your sample func
             
-            # Process Fake images
+            # Process Fake plots
             fake_images = fake_images.repeat(1, 3, 1, 1)
             fake_images = F.interpolate(fake_images, size=(299, 299), mode='bilinear')
             
