@@ -116,8 +116,9 @@ if __name__ == '__main__':
 
 
     # Define Sampling Schedule
-    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0], device=DEVICE)
-    # sampling_schedule = torch.tensor([80.0, 40.0, 5.0, 0.5, 0.1, 0.002], device=DEVICE)
+    sampling_schedule = torch.tensor([80.0, 40.0, 10.0, 5.0, 0.002], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 2.5, 1.0, 0.1, 0.01, 0.002], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0000, 4.4465, 0.7459, 0.2391, 0.0021], device=DEVICE)
     # sampling_schedule = torch.tensor([80.0], device=DEVICE)
 
 
@@ -128,16 +129,17 @@ if __name__ == '__main__':
     sampled_imgs_np = sampled_imgs_tensor.view(25, 28, 28).cpu().detach().numpy()
 
     # Plot all 25 imgs in a 5 by 5 collage
-    fig, axes = plt.subplots(5, 5, figsize=(3, 3))
+    fig, axes = plt.subplots(1, 10, figsize=(10, 2))
+    # fig, axes = plt.subplots(1, 10)
     for i, ax in enumerate(axes.flatten()):
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
-    plt.suptitle(f"25 Generated Digits", fontsize=14)
-    plt.savefig('viz/generation_config6.png')
+    plt.suptitle(f"25 Generated Digits", fontsize=20)
+    plt.savefig('viz/generation_config6_5steps.png')
     print("Saved a collage of 25 Generated Images")
 
     # Calulcate test FID on 10k images
-    calculate_test_fid(trained_online_model, mnist_dataloader, sampling_schedule)
+    # calculate_test_fid(trained_online_model, mnist_dataloader, sampling_schedule)
 
     # TODO: Visualize the generation quality (FID score) vs number of sampling steps
