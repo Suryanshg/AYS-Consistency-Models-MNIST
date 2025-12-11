@@ -140,7 +140,7 @@ if __name__ == '__main__':
     print("Loading CM Model...")
     cm_model = ConsistencyModel()
     cm_model.initialize_FID(get_mnist_dataloader(batch_size=64), num_real_batches=64)
-    cm_model.load("online_cm_config6.pth")
+    cm_model.load("consistency_online_cm2.pth")
 
     print("Sampling some example images...")
     test_schedule = [80., 40., 30., 5., 0.002]

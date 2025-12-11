@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from torchmetrics.image import FrechetInceptionDistance
 
 from models.ConsistencyUNet2 import ConsistencyUNet
-from visualizations.visualizations import plot_collage
 
 
 class ConsistencyModel(nn.Module):

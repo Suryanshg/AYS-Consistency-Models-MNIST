@@ -57,8 +57,8 @@ class ConsistencyUNet(nn.Module):
     def __init__(self,
                  in_channels: int = 1,
                  out_channels: int = 1,
-                 time_embedding_dim: int = 64,
-                 feature_map_dim: int = 64,
+                 time_embedding_dim: int = 128,
+                 feature_map_dim: int = 128,
                  sigma_data: float = 0.5,
                  epsilon: float = 0.002):
         super().__init__()

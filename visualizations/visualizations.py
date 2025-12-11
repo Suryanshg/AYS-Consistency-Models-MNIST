@@ -34,7 +34,7 @@ def plot_pca(pca_results, num_z_t, num_points):
     plt.show()
 
 
-def schedule_length_plot(*fid_lists, labels=None):
+def schedule_length_plot(*fid_lists, labels=None, offset=2):
     """
     Plot one or more FID score lists over N.
     Marks the best N (minimum FID) across all lists.
@@ -57,11 +57,11 @@ def schedule_length_plot(*fid_lists, labels=None):
     # Find first occurrence of global min
     for fid in fid_arrays:
         if min_val in fid:
-            best_idx = np.where(fid == min_val)[0][0] + 1  # +1 for 1-indexed N
+            best_idx = np.where(fid == min_val)[0][0] + offset  # +1 for 1-indexed N
             break
 
     # X-axis values
-    N_values = np.arange(1, len(fid_arrays[0]) + 1)
+    N_values = np.arange(offset, len(fid_arrays[0]) + offset)
     fig, ax = plt.subplots(figsize=(8, 5))
 
     for i, fid_scores in enumerate(fid_arrays):
