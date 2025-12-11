@@ -65,7 +65,7 @@ def get_prediction_velocity(model, device, num_points=100, sigma_max=80.0, sigma
             
     # Return Velocities and the sigma values
     # return np.array(velocities), sigmas[:-1] 
-    return np.array(velocities), sigmas[1:]
+    return np.array(velocities), sigmas[:-1]
 
 
 def compute_ays_schedule(velocities, sigmas, num_steps=5):
@@ -83,20 +83,6 @@ def compute_ays_schedule(velocities, sigmas, num_steps=5):
     # We want to find sigmas that correspond to cumulative probability 0.2, 0.4, 0.6...
     # target_probs = np.linspace(0, 1, num_steps + 1)
     target_probs = np.linspace(0, 1, num_steps)
-    
-    # optimal_sigmas = []
-    
-    # # Always include sigma_max
-    # optimal_sigmas.append(sigmas[0])
-    
-    # # Find the intermediate steps
-    # for target in target_probs[1:-1]: # Skip 0 and 1
-    #     # Find index where CDF crosses the target
-    #     idx = np.searchsorted(cdf, target)
-    #     optimal_sigmas.append(sigmas[idx])
-        
-    # # Always include sigma_min (epsilon)
-    # optimal_sigmas.append(sigmas[-1])
 
     # Use Linear Interpolation (Inverse CDF Sampling)
     # We ask: "At what exact sigma is the CDF = 0.2?"
@@ -138,14 +124,33 @@ if __name__ == "__main__":
     # Plot the Curvature (Blue Line)
     plt.plot(scan_sigmas, velocities, label="Model Curvature (RMSE)", color='blue', linewidth=2)
     
-    # Plot the AYS Steps (Red Dashed Lines)
-    # For each sigma in optimal schedule
-    for i, step_sigma in enumerate(optimal_schedule):
-        plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+    regular_sampling_schedule = [80.0, 40.0, 10.0, 2.0, 0.002]
+    # regular_sampling_schedule = [80.0, 40.0, 20.0, 10.0, 5.0, 2.5, 1.0, 0.1, 0.01, 0.002]
+
+    # Plot the Regular Steps (Black Dashed Lines)
+    # For each sigma in regular sampling schedule
+    for i, step_sigma in enumerate(regular_sampling_schedule):
+        if i == 0:
+            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5, label = "Regular Steps")
+        else:
+            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
         
         # Add a text label at the top of the line
         # We place it slightly above the max velocity to keep it clean
-        plt.text(step_sigma, max(velocities) * 1.05, f"t_{i + 1} = {step_sigma:.4f}", fontsize=9, ha='center', va='bottom', rotation=45)
+        plt.text(step_sigma, max(velocities) * -0.15, f"t_{i + 1}", fontsize=9, ha='center', va='bottom', rotation = 0)
+
+
+    # Plot the AYS Steps (Red Dashed Lines)
+    # For each sigma in optimal schedule
+    for i, step_sigma in enumerate(optimal_schedule):
+        if i == 0:
+            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label = "Optimized Steps")
+        else:
+            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+        
+        # Add a text label at the top of the line
+        # We place it slightly above the max velocity to keep it clean
+        plt.text(step_sigma, max(velocities) * 1.05, f"t_{i + 1}'", fontsize=9, ha='center', va='bottom', rotation=0)
 
     # Adding Log Scale
     plt.xscale('log')
@@ -159,8 +164,8 @@ if __name__ == "__main__":
     plt.xticks(ticks, labels)
     
     # Add title, axis labels, legend and grid
-    plt.title(f"AYS Schedule: {N_STEPS} Steps optimized for Consistency Model", fontsize=14, y=1.2)
-    plt.xlabel("Sigma (Noise Level) - Log Scale", fontsize=12)
+    plt.title(f"AYS Schedule: {N_STEPS} Steps optimized for Consistency Model", fontsize=14, y=1.1)
+    plt.xlabel("Sigma (Noise Level) - Log Scale", fontsize=12, labelpad=15)
     plt.ylabel("RMSE (Pixel Shift Velocity)", fontsize=12)
     plt.legend(loc='upper right')
     plt.grid(True, which="both", linestyle=':', alpha=0.4)
@@ -185,6 +190,6 @@ if __name__ == "__main__":
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
-    plt.suptitle(f"25 Generated Digits (AYS)", fontsize=20)
+    plt.suptitle(f"25 Generated Digits (CM + AYS)", fontsize=20)
     plt.savefig('viz/generation_config6_optim_5steps.png')
     print("Saved a collage of 25 Generated Images using Optimized Sampling Schedule")
