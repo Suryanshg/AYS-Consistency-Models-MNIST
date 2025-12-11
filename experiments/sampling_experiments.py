@@ -15,7 +15,7 @@ def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False):
     z_t_grid = make_z_t_grid(N=num_z_t, experiment_cluster_size=num_points, device=cm_model.device)
 
     # Step 2: Run CM for all z_t in grid, resulting in x_t_grid
-    x_t_grid = cm_model.propagate_zT(z_t_grid, schedule, deterministic=True)
+    x_t_grid = cm_model.propagate_zT(z_t_grid, schedule, deterministic=False)
 
     # Reshape output and get 2D PCA
     x_t_grid = x_t_grid.reshape(num_z_t, num_points, *x_t_grid.shape[1:])
@@ -73,7 +73,10 @@ def dependence_experiment(optimize_by="div_score", N_points=10, n_candidates=7):
         history.extend(step_results)
 
         # Pick candidate with highest correlation
-        best_candidate = float(candidate_distances[np.argmax([r[optimize_by] for r in step_results])])
+        if optimize_by == "random":
+            best_candidate = float(np.random.choice([r["candidate"] for r in step_results]))
+        else:
+            best_candidate = float(candidate_distances[np.argmax([r[optimize_by] for r in step_results])])
         schedule.append(best_candidate)
         schedule.sort(reverse=True)
 
@@ -124,3 +127,5 @@ if __name__ == '__main__':
 
     print("Running correlation dependence experiment...")
     corr, ds, pca_ds = evaluate_dependence(test_schedule, plot=True)
+    history, output_schedule = dependence_experiment(optimize_by="random")
+    correlation_diversity_plot(history)

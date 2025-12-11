@@ -54,33 +54,48 @@ def schedule_length_plot(fid_scores):
 
 def correlation_diversity_plot(data):
     df = pd.DataFrame(data)
-    mean_df = df.groupby("N")[["avg_corr", "div_score", "pca_div_score"]].max().reset_index() # Max across candidates
-    x_vals = mean_df["N"]
 
-    fig, ax = plt.subplots()
+    # Average values per N
+    mean_df = (
+        df.groupby("N")[["avg_corr", "div_score", "pca_div_score"]]
+        .mean()
+        .reset_index()
+        .sort_values("N")
+    )
 
-    # Plot correlation on left axis
-    sns.lineplot(x=x_vals, y=mean_df["avg_corr"], label="Correlation", color="blue", ax=ax)
-    ax.set_ylabel("Correlation (0-1)", color="blue")
-    ax.tick_params(axis="y", labelcolor="blue")
+    x_vals = mean_df["N"].values
 
-    # Plot diversity and PCA diversity on right axis
-    ax2 = ax.twinx()
-    sns.lineplot(x=x_vals, y=mean_df["div_score"], label="Diversity", color="green", ax=ax2)
-    sns.lineplot(x=x_vals, y=mean_df["pca_div_score"], label="PCA Diversity", color="orange", ax=ax2)
-    ax2.set_ylabel("Diversity Metrics (0-1 normalized)", color="black")
-    ax2.tick_params(axis="y", labelcolor="black")
+    # ----------------------------
+    # 1. Correlation Plot
+    # ----------------------------
+    plt.figure(figsize=(7, 4))
+    sns.lineplot(x=x_vals, y=mean_df["avg_corr"].values, marker="o")
+    plt.title("Average Correlation per N")
+    plt.xlabel("N (schedule size)")
+    plt.ylabel("Correlation (0–1)")
+    plt.xticks(x_vals)
+    if mean_df["avg_corr"].max() < 1:
+        plt.ylim((0, 1))
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.show()
 
-    ax.set_xlabel("N (schedule size)")
-    ax.set_xticks(x_vals)
-    fig.suptitle("Average Correlation and Diversity Metrics per N")
-    fig.tight_layout()
+    # ----------------------------
+    # 2. Diversity Plot
+    # ----------------------------
+    plt.figure(figsize=(7, 4))
+    sns.lineplot(x=x_vals, y=mean_df["div_score"], label="Diversity", marker="o")
+    sns.lineplot(x=x_vals, y=mean_df["pca_div_score"], label="PCA Diversity", marker="o")
 
-    # Combine legends
-    lines, labels = ax.get_legend_handles_labels()
-    lines2, labels2 = ax2.get_legend_handles_labels()
-    ax2.legend(lines + lines2, labels + labels2, loc="upper right")
-
+    plt.title("Diversity Metrics per N")
+    plt.xlabel("N (schedule size)")
+    plt.ylabel("Diversity (0–1 normalized)")
+    if mean_df["pca_div_score"].max() < 1:
+        plt.ylim((0, 1))
+    plt.xticks(x_vals)
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     plt.show()
 
 def plot_collage(images, collage_dim=(5, 5)):
