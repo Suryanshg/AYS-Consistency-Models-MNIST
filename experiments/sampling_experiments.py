@@ -10,12 +10,12 @@ from experiments.experiment_helpers import make_z_t_grid, calculate_pca, calcula
 from visualizations.visualizations import schedule_length_plot, correlation_diversity_plot, plot_collage, plot_pca
 
 
-def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False):
+def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False, deterministic=False):
     # Step 1: Generate an experiment grid
     z_t_grid = make_z_t_grid(N=num_z_t, experiment_cluster_size=num_points, device=cm_model.device)
 
     # Step 2: Run CM for all z_t in grid, resulting in x_t_grid
-    x_t_grid = cm_model.propagate_zT(z_t_grid, schedule, deterministic=False)
+    x_t_grid = cm_model.propagate_zT(z_t_grid, schedule, deterministic=deterministic)
 
     # Reshape output and get 2D PCA
     x_t_grid = x_t_grid.reshape(num_z_t, num_points, *x_t_grid.shape[1:])
@@ -37,7 +37,7 @@ def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False):
     print("Avg PCA diversity:", pca_div_score)
 
     if plot:
-        plot_pca(pca_grid, num_z_t, num_points)
+        plot_pca(pca_grid, num_z_t, num_points, deterministic)
 
     return avg_corr, div_score, pca_div_score
 
@@ -140,22 +140,20 @@ if __name__ == '__main__':
     print("Loading CM Model...")
     cm_model = ConsistencyModel()
     cm_model.initialize_FID(get_mnist_dataloader(batch_size=64), num_real_batches=64)
-    cm_model.load("consistency_online_cm2.pth")
+    cm_model.load("online_cm_config6.pth")
 
     print("Sampling some example images...")
     test_schedule = [80., 40., 30., 5., 0.002]
     #results = cm_model.sample(n_samples=25, schedule=test_schedule)
     #plot_collage(results)
 
-    print("Running schedule size experiment...")
-    #fid_scores, time_deltas = schedule_length_experiment()
-    #schedule_length_plot(fid_scores)
+    #print("Running AYS FID + Schedule Length experiment...")
+    #fid_norms, fid_ays = ays_fid_experiment()
+    #schedule_length_plot(fid_norms, fid_ays, labels=["FID Standard", "FID w/ AYS"])
 
     print("Running correlation dependence experiment...")
-    #corr, ds, pca_ds = evaluate_dependence(test_schedule, plot=True)
-    #history, output_schedule = dependence_experiment(optimize_by="random")
-    #correlation_diversity_plot(history)
-
-    print("Running AYS FID experiment...")
-    fid_norms, fid_ays = ays_fid_experiment()
-    schedule_length_plot(fid_norms, fid_ays, labels=["FID Standard", "FID w/ AYS"])
+    evaluate_dependence(test_schedule, plot=True, deterministic=False)
+    dependence_experiment(optimize_by="random")
+    evaluate_dependence(test_schedule, plot=True, deterministic=True)
+    history, _ = dependence_experiment(optimize_by="random")
+    correlation_diversity_plot(history)

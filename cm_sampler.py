@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchmetrics.image import FrechetInceptionDistance
 
-from models.ConsistencyUNet2 import ConsistencyUNet
+from models.ConsistencyUNet3 import ConsistencyUNet
 
 
 class ConsistencyModel(nn.Module):

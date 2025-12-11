@@ -5,7 +5,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 
 # Visualization of PCA on 2D Grid
-def plot_pca(pca_results, num_z_t, num_points):
+def plot_pca(pca_results, num_z_t, num_points, deterministic):
 
     # Colors for each cluster
     colors = plt.cm.tab10(range(num_z_t))
@@ -25,7 +25,10 @@ def plot_pca(pca_results, num_z_t, num_points):
         )
         idx += num_points
 
-    plt.title("Image Clustering (PCA)")
+    if deterministic:
+        plt.title("CM Sampling Clustering for Deterministic ODE (PCA)")
+    else:
+        plt.title("CM Sampling Clustering for Stochastic ODE (PCA)")
     plt.xlabel("PC 1")
     plt.ylabel("PC 2")
     plt.legend()
