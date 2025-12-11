@@ -7,6 +7,7 @@ from datasets.mnist_dataloader import get_mnist_dataloader
 
 # from models.ConsistencyUNet import ConsistencyUNet
 from models.ConsistencyUNet2 import ConsistencyUNet
+# from models.ConsistencyUNet3 import ConsistencyUNet
 
 from typing import Tuple, List
 import math
@@ -24,14 +25,13 @@ print(f"Using device: {DEVICE}")
 # Initialize the Inception Model for FID calculation
 fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(DEVICE)
 
-
 # NOTE: "t" does not just only denote timestep, but also noise level. Higher "t" means high timestep, but also high noise levels.
 # Lower "t" means low timestep, but also low noise levels.
 
 
 def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
     """
-    Feeds real plots into the FID metric to update the 'real' statistics.
+    Feeds real images into the FID metric to update the 'real' statistics.
     """
     fid_metric.reset()
     
@@ -42,7 +42,7 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
         # Convert range from [-1, 1] to [0, 1]
         x = (x * 0.5) + 0.5
 
-        # Repeat Grayscale to look like RGB Images (as InceptionV3 expects RGB plots)
+        # Repeat Grayscale to look like RGB Images (as InceptionV3 expects RGB images)
         x = x.repeat(1, 3, 1, 1)
 
         # Resize to 299x299 (Required by InceptionV3)
@@ -59,7 +59,7 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
 
 def evaluate_fid(model: nn.Module, num_batches = 10, batch_size = 128) -> float:
     """
-    Generates fake plots and computes FID against the pre-computed real stats.
+    Generates fake images and computes FID against the pre-computed real stats.
     """
     model.eval()
     
@@ -68,13 +68,11 @@ def evaluate_fid(model: nn.Module, num_batches = 10, batch_size = 128) -> float:
 
     with torch.no_grad():
         for _ in range(num_batches):
-            # 1. Generate Noise
-            # z = torch.randn(batch_size, 1, 32, 32).to(DEVICE) * 80.0
             
-            # 2. Generate Images
-            fake_images = sample(model, schedule, DEVICE, shape = (batch_size, 1, 28, 28)) # Returns [-1, 1] or [0, 1] depending on your sample func
+            # Generate Images
+            fake_images = sample(model, schedule, DEVICE, shape = (batch_size, 1, 28, 28))
             
-            # Process Fake plots
+            # Process Fake images
             fake_images = fake_images.repeat(1, 3, 1, 1)
             fake_images = F.interpolate(fake_images, size=(299, 299), mode='bilinear')
             
@@ -183,27 +181,32 @@ def train(
                     ema_params.mul_(mu).add_(online_params, alpha = 1 - mu)
 
             # Accumulate Running Loss
-            loss_history.append(loss.item())
+            # loss_history.append(loss.item())
             running_loss += loss.item()
             steps += 1
             
         # Epoch Over
         # Calculate Avg Loss
         avg_loss = (running_loss / steps)
+        loss_history.append(avg_loss)
 
         # Precompute FID Metrics for Real Data
         precompute_real_stats(dataloader, num_batches=10)
 
         # Compute FID Score using Online Model
-        fid_score = evaluate_fid(online_model, num_batches=10, batch_size=128)
+        fid_score = evaluate_fid(online_model, num_batches=10, batch_size=BATCH_SIZE)
 
         fid_scores.append(fid_score)
 
         # Logging for every epoch
         tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, FID: {fid_score:.4f}, N: {N}, mu: {mu:.4f}")
+        # tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, N: {N}, mu: {mu:.4f}")
 
-        # TODO: Eval Model after every epoch for each N and how it performs
-        # TODO: Viz about training performance for both models
+        # # Save the EMA Model weights
+        # torch.save(ema_model.state_dict(), f"trained_model_weights/checkpoints/ema_cm_attn_iter{epoch+1}.pth")
+
+        # # Save the Online Model weights
+        # torch.save(online_model.state_dict(), f"trained_model_weights/checkpoints/online_cm_attn_iter{epoch+1}.pth")
 
     # Return trained models, loss history, and fid scores for each epoch
     return online_model, ema_model, loss_history, fid_scores
@@ -269,33 +272,35 @@ def get_karras_time_schedule(N: int,
     # Return the Karras Schedule
     return karras_schedule
 
-def visualize_loss_trajectory(loss_history: List[float]):
+
+def visualize_loss_trajectory(loss_history: List[float], path: str):
     plt.figure(figsize=(6, 4))
     plt.plot(loss_history, color="blue")
-    plt.xlabel("Iterations")
+    plt.xlabel("Epochs")
     plt.ylabel("MSE Loss")
     plt.title("Consistency Model: Loss Trajectory")
     plt.grid(True, linestyle="--", alpha=0.3)
-    plt.savefig('viz/consistency_loss_trajectory.png')
+    plt.savefig(path)
 
 
-def visualize_fid_trajectory(fid_scores: List[float]):
+def visualize_fid_trajectory(fid_scores: List[float], path: str):
     plt.figure(figsize=(6, 4))
     plt.plot(fid_scores, color="blue")
     plt.xlabel("Epochs")
     plt.ylabel("FID")
     plt.title("Consistency Model: FID")
     plt.grid(True, linestyle="--", alpha=0.3)
-    plt.savefig('viz/consistency_fid_trajectory.png')
+    plt.savefig(path)
 
 
 # ┌───────────────────────────────────────────────┐
 # │                 DRIVER CODE                   │
 # └───────────────────────────────────────────────┘
 if __name__ == '__main__':
+    BATCH_SIZE = 128
 
     # Load MNIST Dataloader
-    mnist_dataloader = get_mnist_dataloader()
+    mnist_dataloader = get_mnist_dataloader(batch_size=BATCH_SIZE)
     
     # Print Dataset Summary
     print(f"{'-' * 10} DATASET INFO {'-' * 10}\n")
@@ -322,13 +327,14 @@ if __name__ == '__main__':
 
 
     # Visualize the Loss Trajectory
-    visualize_loss_trajectory(loss_history)
+    visualize_loss_trajectory(loss_history, 'viz/loss_trajectory_config6.png')
 
     # Visualize the FID Trajectory
-    visualize_fid_trajectory(fid_scores)
-
-    # Save the EMA Model weights
-    torch.save(trained_ema_model.state_dict(), "trained_model_weights/ema_cm.pth")
+    visualize_fid_trajectory(fid_scores, 'viz/fid_trajectory_config6.png')
 
     # Save the Online Model weights
-    torch.save(trained_online_model.state_dict(), "trained_model_weights/online_cm.pth")
+    torch.save(trained_online_model.state_dict(), "trained_model_weights/online_cm_config6.pth")
+
+    # Save the EMA Model weights
+    torch.save(trained_ema_model.state_dict(), "trained_model_weights/ema_cm_config6.pth")
+
