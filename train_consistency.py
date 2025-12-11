@@ -327,14 +327,14 @@ if __name__ == '__main__':
 
 
     # Visualize the Loss Trajectory
-    visualize_loss_trajectory(loss_history, 'viz/loss_trajectory_config6.png')
+    visualize_loss_trajectory(loss_history, 'visualizations/loss_trajectory_config6.png')
 
     # Visualize the FID Trajectory
-    visualize_fid_trajectory(fid_scores, 'viz/fid_trajectory_config6.png')
+    visualize_fid_trajectory(fid_scores, 'visualizations/fid_trajectory_config6.png')
 
     # Save the Online Model weights
-    torch.save(trained_online_model.state_dict(), "trained_model_weights/online_cm_config6.pth")
+    torch.save(trained_online_model.state_dict(), "weights/online_cm_config6.pth")
 
     # Save the EMA Model weights
-    torch.save(trained_ema_model.state_dict(), "trained_model_weights/ema_cm_config6.pth")
+    torch.save(trained_ema_model.state_dict(), "weights/ema_cm_config6.pth")
 

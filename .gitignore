@@ -213,5 +213,5 @@ data/*
 
 
 # Ignore all files in "trained_model_weights" folder, except for .gitkeep
-trained_model_weights/*
-!trained_model_weights/.gitkeep
+weights/*
+!weights/.gitkeep

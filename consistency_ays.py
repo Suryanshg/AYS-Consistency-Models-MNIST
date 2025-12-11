@@ -115,7 +115,7 @@ if __name__ == "__main__":
     
     # Load the trained Consistency model
     model = ConsistencyUNet().to(DEVICE)
-    model.load_state_dict(torch.load("trained_model_weights/online_cm_config6.pth", map_location=DEVICE))
+    model.load_state_dict(torch.load("weights/online_cm_config6.pth", map_location=DEVICE))
     
     # Scan the model (PF ODE) for Curvature
     velocities, scan_sigmas = get_prediction_velocity(model, DEVICE, num_points=200, sigma_max=80.0, sigma_min=0.002)
