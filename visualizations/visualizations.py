@@ -5,8 +5,7 @@ from matplotlib import pyplot as plt
 import seaborn as sns
 
 # Visualization of PCA on 2D Grid
-def plot_grid_images_pca(x_t_grid, pca_results):
-    num_z_t, num_points = x_t_grid.shape[:2]
+def plot_pca(pca_results, num_z_t, num_points):
 
     # Colors for each cluster
     colors = plt.cm.tab10(range(num_z_t))
@@ -34,62 +33,23 @@ def plot_grid_images_pca(x_t_grid, pca_results):
     plt.tight_layout()
     plt.show()
 
-def plot_grid_images(x_t_grid):
-    num_z_t, num_points = x_t_grid.shape[:2]
-
-    fig, axes = plt.subplots(num_z_t, num_points, figsize=(num_points * 2.2, num_z_t * 2.2))
-
-    # Handle degenerate cases for rows/columns
-    if num_z_t == 1:
-        axes = [axes]
-    if num_points == 1:
-        axes = [[ax] for ax in axes]
-
-    for i in range(num_z_t):
-        for j in range(num_points):
-            img = x_t_grid[i, j].detach().cpu()
-
-            if img.ndim == 3:
-                img = img.permute(1, 2, 0)
-
-            # Handle grayscale plots
-            if img.shape[-1] == 1:
-                img = img[..., 0]
-
-            # Normalize if not in [0,1]
-            img_min, img_max = img.min(), img.max()
-            if img_max - img_min > 1e-6:
-                img = (img - img_min) / (img_max - img_min)
-
-            axes[i][j].imshow(img, cmap="gray" if img.ndim == 2 else None)
-            axes[i][j].axis("off")
-
-    plt.tight_layout()
-    plt.show()
-
-def schedule_length_plot(fid_scores, time_deltas):
-    # Normalize 0–1
-    fid_norm = (fid_scores - np.min(fid_scores)) / (np.max(fid_scores) - np.min(fid_scores))
-    time_norm = (time_deltas - np.min(time_deltas)) / (np.max(time_deltas) - np.min(time_deltas))
-
-    # Compute intersection (sweet spot)
-    diff = np.abs(fid_norm - time_norm)
-    sweet_idx = np.argmin(diff)+1
+def schedule_length_plot(fid_scores):
+    fid_scores = np.array(fid_scores)
+    N_values = np.arange(1, len(fid_scores) + 1)
 
     fig, ax = plt.subplots()
+    sns.lineplot(x=N_values, y=fid_scores, label="FID", color="blue", ax=ax)
+    best_idx = np.argmin(fid_scores) + 1 # Minimum FID score point
 
-    sns.lineplot(x=np.arange(1, len(fid_norm) + 1), y=fid_norm, label="FID", color="blue", ax=ax)
-    sns.lineplot(x=np.arange(1, len(time_norm) + 1), y=time_norm, label="Time", color="green", ax=ax)
-
-    # Mark sweet spot
-    ax.scatter([sweet_idx], [fid_norm[sweet_idx - 1]], s=120, zorder=10, color="red", label="Ideal N")
-    ax.annotate(f"Ideal N @ {sweet_idx}", (sweet_idx, fid_norm[sweet_idx - 1]), textcoords="offset points", xytext=(10,10), zorder=11)
+    # Mark best point
+    ax.scatter([best_idx], [fid_scores[best_idx - 1]],  s=120, zorder=10, color="red", label="Best N")
+    ax.annotate(f"Best N @ {best_idx}", (best_idx, fid_scores[best_idx - 1]), textcoords="offset points", xytext=(10,10), zorder=11)
 
     ax.set_xlabel("N")
-    ax.set_ylabel("Normalized Values")
-    ax.set_xticks(np.arange(1, len(fid_norm) + 1))
+    ax.set_ylabel("FID Score")
+    ax.set_xticks(N_values)
     ax.legend()
-    plt.title("Normalized FID vs Time")
+    plt.title("FID vs Schedule Length (N)")
     plt.show()
 
 def correlation_diversity_plot(data):
@@ -140,11 +100,7 @@ def plot_collage(images, collage_dim=(5, 5)):
         if isinstance(img, torch.Tensor):
             img = img.detach().cpu().numpy()
 
-        # If channel-first, move to channel-last
-        if img.ndim == 3 and img.shape[0] in (1, 3):
-            img = np.moveaxis(img, 0, -1)
-
-        ax.imshow(img.squeeze())
+        ax.imshow(img.squeeze(), cmap='gray')
         ax.axis("off")
 
     plt.tight_layout()

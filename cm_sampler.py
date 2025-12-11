@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 from torchmetrics.image import FrechetInceptionDistance
 
 from models.ConsistencyUNet2 import ConsistencyUNet
+from visualizations.visualizations import plot_collage
 
 
 class ConsistencyModel(nn.Module):
@@ -17,7 +18,7 @@ class ConsistencyModel(nn.Module):
         self.model = ConsistencyUNet()
         self.fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(self.device)
 
-    def initialize_FID(self, dataloader: DataLoader, num_batches=10):
+    def initialize_FID(self, dataloader: DataLoader, num_batches=30):
         print("Generating FID from real...")
         self.fid_metric.reset()
 
@@ -55,24 +56,20 @@ class ConsistencyModel(nn.Module):
         assert len(image_dim) > 3 # Must be in [B, C, H, W] form
 
         sampling_schedule = torch.tensor(sampling_schedule, device=self.device)
-        x_hat = None
 
-        for i,t in enumerate(sampling_schedule):
-            # Broadcast time "t" to shape (batch_size,)
-            if i > 0:
-                t_tensor = t.repeat(image_dim[0])
-            else:
-                t_tensor = t
+        # First step (no noise adding)
+        z_t = z_t * sampling_schedule[0]
+        t_tensor = sampling_schedule[0].repeat(image_dim[0])  # (N,)
+        x_hat = self.model(z_t, t_tensor)
 
-            # Predict x_hat using noised image and t_tensor
-            x_hat = self.model(z_t, t_tensor)
-
-            # Sample a new noise tensor to convert ODE to SDE for better generation diversity
+        # Remaining Steps
+        for t in sampling_schedule[1:]:
             if not deterministic:
                 z_t = torch.randn_like(x_hat)
-
-            # Add the sampled noise to the current x_hat
             z_t = x_hat + (math.sqrt((t ** 2) - (epsilon ** 2)) * z_t)
+
+            t_tensor = t.repeat(image_dim[0])
+            x_hat = self.model(z_t, t_tensor)
 
         # Post-process images generated
         x_hat = (x_hat * 0.5 + 0.5)
@@ -86,18 +83,14 @@ class ConsistencyModel(nn.Module):
         self.model.eval()
         with torch.no_grad():
             for _ in range(num_batches):
-                # 1. Generate Noise
-                z = torch.randn(batch_size, 1, 32, 32).to(self.device)
+                # 1. Sample Images
+                fake_images = self.sample(n_samples=batch_size, schedule=schedule)
+                # 2. Process Fake Images
+                f_i = fake_images.repeat(1, 3, 1, 1)
+                f_i = F.interpolate(f_i, size=(299, 299), mode='bilinear')
 
-                # 2. Generate Images
-                fake_images = self.propagate_zT(z, schedule, deterministic=True)
-
-                # 3. Process Fake Images
-                fake_images = fake_images.repeat(1, 3, 1, 1)
-                fake_images = F.interpolate(fake_images, size=(299, 299), mode='bilinear')
-
-                # 4. Update metric with real=False
-                self.fid_metric.update(fake_images, real=False)
+                # 3. Update metric with real=False
+                self.fid_metric.update(f_i, real=False)
 
         # Compute final score
         score = self.fid_metric.compute()

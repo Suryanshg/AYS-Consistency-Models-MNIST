@@ -109,7 +109,7 @@ if __name__ == '__main__':
 
     # Load Weights into the Consistency Models
     trained_online_model.load_state_dict(torch.load("weights/online_cm_config6.pth", map_location=DEVICE))
-    trained_ema_model.load_state_dict(torch.load("weights/ema_cm_config6.pth", map_location=DEVICE))
+    #trained_ema_model.load_state_dict(torch.load("weights/ema_cm_config6.pth", map_location=DEVICE))
 
 
     # Define Sampling Schedule
@@ -133,10 +133,10 @@ if __name__ == '__main__':
         ax.axis('off')
 
     plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('viz/generation_config6_5steps.png')
+    plt.savefig('visualizations/images/generation_config6_5steps.png')
     print("Saved a collage of 25 Generated Images")
 
     # Calulcate test FID on 10k images
-    # calculate_test_fid(trained_online_model, mnist_dataloader, sampling_schedule)
+    calculate_test_fid(trained_online_model, mnist_dataloader, sampling_schedule)
 
     # TODO: Visualize the generation quality (FID score) vs number of sampling steps
