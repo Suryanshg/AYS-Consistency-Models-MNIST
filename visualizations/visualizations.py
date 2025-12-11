@@ -33,23 +33,53 @@ def plot_pca(pca_results, num_z_t, num_points):
     plt.tight_layout()
     plt.show()
 
-def schedule_length_plot(fid_scores):
-    fid_scores = np.array(fid_scores)
-    N_values = np.arange(1, len(fid_scores) + 1)
 
-    fig, ax = plt.subplots()
-    sns.lineplot(x=N_values, y=fid_scores, label="FID", color="blue", ax=ax)
-    best_idx = np.argmin(fid_scores) + 1 # Minimum FID score point
+def schedule_length_plot(*fid_lists, labels=None):
+    """
+    Plot one or more FID score lists over N.
+    Marks the best N (minimum FID) across all lists.
 
-    # Mark best point
-    ax.scatter([best_idx], [fid_scores[best_idx - 1]],  s=120, zorder=10, color="red", label="Best N")
-    ax.annotate(f"Best N @ {best_idx}", (best_idx, fid_scores[best_idx - 1]), textcoords="offset points", xytext=(10,10), zorder=11)
+    Parameters:
+        *fid_lists : arbitrary number of lists/arrays of FID scores
+        labels     : list of strings for each line (optional)
+        colors     : list of colors for each line (optional)
+    """
+    n_lines = len(fid_lists)
+    if labels is None:
+        labels = [f"FID {i + 1}" for i in range(n_lines)]
+
+    colors = sns.color_palette("tab10", n_lines)
+
+    # Convert all lists to numpy arrays and compute global minimum
+    fid_arrays = [np.array(fid) for fid in fid_lists]
+    min_val = min([fid.min() for fid in fid_arrays])
+    best_idx = None
+    # Find first occurrence of global min
+    for fid in fid_arrays:
+        if min_val in fid:
+            best_idx = np.where(fid == min_val)[0][0] + 1  # +1 for 1-indexed N
+            break
+
+    # X-axis values
+    N_values = np.arange(1, len(fid_arrays[0]) + 1)
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    for i, fid_scores in enumerate(fid_arrays):
+        sns.lineplot(x=N_values, y=fid_scores, label=labels[i], color=colors[i], ax=ax, marker="o")
+
+    # Mark global best point
+    ax.scatter([best_idx], [min_val], s=120, zorder=10, color="red", label="Best N")
+    ax.annotate(f"Best N @ {best_idx}",
+                (best_idx, min_val),
+                textcoords="offset points", xytext=(10, 10), zorder=11, color="red")
 
     ax.set_xlabel("N")
     ax.set_ylabel("FID Score")
     ax.set_xticks(N_values)
     ax.legend()
     plt.title("FID vs Schedule Length (N)")
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
     plt.show()
 
 def correlation_diversity_plot(data):

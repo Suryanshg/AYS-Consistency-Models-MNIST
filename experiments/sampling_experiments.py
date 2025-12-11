@@ -82,15 +82,22 @@ def dependence_experiment(optimize_by="div_score", N_points=10, n_candidates=7):
 
     return history, schedule
 
-
-def schedule_length_experiment():
+def random_append_schedule(initial_schedule: list):
     schedule_full = [80., 70., 65., 60., 55.,
                      10., 5., 1., 0.5, 0.002]
+
+    # Pick random item from schedule_full and add to schedule
+    t_to_add = random.choice(schedule_full[1:])
+    initial_schedule.append(t_to_add)
+    initial_schedule.sort(reverse=True)
+    return initial_schedule
+
+def schedule_length_experiment(max_points=10):
     schedule = [80.]
 
     fid_scores = []
     time_deltas = []
-    while len(schedule) < len(schedule_full):
+    while len(schedule) < max_points:
         # Time how long it takes
         t1 = time.time()
         # Calculate fid score
@@ -103,17 +110,36 @@ def schedule_length_experiment():
         time_deltas.append(t2-t1)
         fid_scores.append(fid_score)
         # Pick random item from schedule_full and add to schedule
-        t_to_add = random.choice(schedule_full[1:])
-        schedule.append(t_to_add)
-        schedule.sort(reverse=True)
+        schedule = random_append_schedule(schedule)
 
     return fid_scores, time_deltas
+
+def ays_fid_experiment(max_points=10):
+    # Compute FID for different schedule lengths using AYS now
+    non_ays_schedule = [80.]
+
+    fid_normal_scores = []
+    fid_ays_scores = []
+    for i in range(2, max_points+1):
+        # Update AYS and normal schedules
+        non_ays_schedule = random_append_schedule(non_ays_schedule)
+        ays_schedule = cm_model.get_ays_schedule(num_steps=i).astype(np.float16).tolist()
+
+        # Evaluate FID for both schedules
+        fid_norm = cm_model.evaluate_fid(non_ays_schedule)
+        fid_ays = cm_model.evaluate_fid(ays_schedule)
+        print(f"N: {i} | FID Normal: {fid_norm} | FID AYS: {fid_ays}")
+
+        fid_normal_scores.append(fid_norm)
+        fid_ays_scores.append(fid_ays)
+
+    return fid_normal_scores, fid_ays_scores
 
 
 if __name__ == '__main__':
     print("Loading CM Model...")
     cm_model = ConsistencyModel()
-    cm_model.initialize_FID(get_mnist_dataloader(batch_size=64))
+    cm_model.initialize_FID(get_mnist_dataloader(batch_size=64), num_real_batches=64)
     cm_model.load("online_cm_config6.pth")
 
     print("Sampling some example images...")
@@ -126,6 +152,10 @@ if __name__ == '__main__':
     #schedule_length_plot(fid_scores)
 
     print("Running correlation dependence experiment...")
-    corr, ds, pca_ds = evaluate_dependence(test_schedule, plot=True)
-    history, output_schedule = dependence_experiment(optimize_by="random")
-    correlation_diversity_plot(history)
+    #corr, ds, pca_ds = evaluate_dependence(test_schedule, plot=True)
+    #history, output_schedule = dependence_experiment(optimize_by="random")
+    #correlation_diversity_plot(history)
+
+    print("Running AYS FID experiment...")
+    fid_norms, fid_ays = ays_fid_experiment()
+    schedule_length_plot(fid_norms, fid_ays, labels=["FID Standard", "FID w/ AYS"])

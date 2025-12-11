@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import torch
 from torch import Tensor, nn
 import torch.nn.functional as F
@@ -18,7 +19,11 @@ class ConsistencyModel(nn.Module):
         self.model = ConsistencyUNet()
         self.fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(self.device)
 
-    def initialize_FID(self, dataloader: DataLoader, num_batches=30):
+        # AYS Stuff
+        self.velocities = None
+        self.sigmas = None
+
+    def initialize_FID(self, dataloader: DataLoader, num_real_batches=64):
         print("Generating FID from real...")
         self.fid_metric.reset()
 
@@ -40,7 +45,7 @@ class ConsistencyModel(nn.Module):
             self.fid_metric.update(x, real=True)
 
             count += 1
-            if count >= num_batches:
+            if count >= num_real_batches:
                 break
 
     def forward(self, z_t, t_tensor):
@@ -78,7 +83,7 @@ class ConsistencyModel(nn.Module):
         return x_hat
 
     def evaluate_fid(self, schedule, num_batches=10, batch_size=128) -> float:
-        assert self.fid_metric
+        assert self.fid_metric is not None
 
         self.model.eval()
         with torch.no_grad():
@@ -103,3 +108,112 @@ class ConsistencyModel(nn.Module):
 
     def save(self, path: str):
         self.model.state_dict()
+
+    # ----------------------------------------------- AYS Integration --------------------------------------------------
+    def _init_prediction_velocities(self, num_points=100, sigma_max=80.0, sigma_min=0.002):
+        """
+        Scans the model from sigma_max down to sigma_min.
+        Measures how much the predicted x_0 changes (velocity) at each level.
+        """
+        print(f"Initializing velocity calculations for current model to perform AYS...")
+        # Create a list of sigmas in log-space (High Noise (80.0) -> Low Noise (0.002))
+        sigmas = np.exp(np.linspace(np.log(sigma_max), np.log(sigma_min), num_points))
+
+        # Create a fixed Gaussian noise vector to probe consistency model
+        # We use a batch of 10 to average out random fluctuations
+        # This is important for simulating the PF ODE Trajectory
+        fixed_noise = torch.randn(10, 1, 28, 28).to(self.device)  # (10, 1, 28, 28)
+
+        # Init a List to store velocities
+        velocities = []
+
+        self.model.eval()
+        with torch.no_grad():
+            for i in range(len(sigmas) - 1):
+                # Extract Current Sigma and Next Sigma values (Consecutive at index i)
+                sigma_curr = sigmas[i]  # High Noise Signal
+                sigma_next = sigmas[i + 1]  # Low Noise Signal
+
+                # Create inputs for current and next sigma
+                # Note: We scale the same fixed noise by the sigma
+                z_curr = fixed_noise * sigma_curr  # (10, 1, 28, 28)
+                z_next = fixed_noise * sigma_next  # (10, 1, 28, 28)
+
+                t_curr = torch.full((10,), sigma_curr, device=self.device)  # (10, )
+                t_next = torch.full((10,), sigma_next, device=self.device)  # (10, )
+
+                # Get predictions
+                pred_curr = self.model(z_curr, t_curr)  # (10, 1, 28, 28)
+                pred_next = self.model(z_next, t_next)  # (10, 1 ,28, 28)
+
+                # Calculate "Velocity" = change between predictions
+                # If the model is perfectly consistent, this should be 0.
+                # Large values mean the model is "changing its mind" --> High Curvature.
+
+                # Calculate the raw Difference in predictions
+                diff = pred_curr - pred_next
+
+                # Calculate RMSE per image
+                # Shape: (Batch_Size,)
+                rmse_per_image = diff.pow(2).mean(dim=(1, 2, 3)).sqrt()
+
+                # Calculate velocity per image (Change per unit of sigma)
+                # Velocity = Displacement / Time
+                # velocity_per_image = rmse_per_image / delta_sigma
+
+                # Average over the batch
+                # velocity = velocity_per_image.mean().item()
+                velocity = rmse_per_image.mean().item()
+
+                # Acculumulate Velocities
+                velocities.append(velocity)
+
+        self.velocities = np.array(velocities)
+        self.sigmas = sigmas[1:]
+        # Return Velocities and the sigma values
+        # return np.array(velocities), sigmas[:-1]
+        return self.velocities, self.sigmas
+
+    def get_ays_schedule(self, num_steps=5):
+        """
+        Uses the velocity (curvature) profile to pick optimal steps.
+        We treat velocity as a Probability Density Function (PDF) and sample from it.
+        """
+        if self.velocities is None:
+            self._init_prediction_velocities()
+
+        # Normalize velocities to create a PDF
+        pdf = self.velocities / np.sum(self.velocities)
+
+        # Compute Cumulative Distribution Function (CDF)
+        cdf = np.cumsum(pdf)
+
+        # Sample 'num_steps' points evenly from the CDF (0 to 1)
+        # We want to find sigmas that correspond to cumulative probability 0.2, 0.4, 0.6...
+        # target_probs = np.linspace(0, 1, num_steps + 1)
+        target_probs = np.linspace(0, 1, num_steps)
+
+        # optimal_sigmas = []
+
+        # # Always include sigma_max
+        # optimal_sigmas.append(sigmas[0])
+
+        # # Find the intermediate steps
+        # for target in target_probs[1:-1]: # Skip 0 and 1
+        #     # Find index where CDF crosses the target
+        #     idx = np.searchsorted(cdf, target)
+        #     optimal_sigmas.append(sigmas[idx])
+
+        # # Always include sigma_min (epsilon)
+        # optimal_sigmas.append(sigmas[-1])
+
+        # Use Linear Interpolation (Inverse CDF Sampling)
+        # We ask: "At what exact sigma is the CDF = 0.2?"
+        optimal_sigmas = np.interp(target_probs, cdf, self.sigmas)
+
+        # Fix Boundaries
+        # Interpolation might slightly miss the exact start/end due to floating point math
+        optimal_sigmas[0] = self.sigmas[0]  # Force start to be exactly sigma_max
+        optimal_sigmas[-1] = self.sigmas[-1]  # Force end to be exactly sigma_min
+
+        return np.array(optimal_sigmas)
