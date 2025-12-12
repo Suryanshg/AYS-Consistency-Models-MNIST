@@ -5,10 +5,11 @@ from tqdm import tqdm
 import torch.nn.functional as F
 from datasets.mnist_dataloader import get_mnist_dataloader
 
-from models.ConsistencyUNet2 import ConsistencyUNet
+from models.DDPMUNet import DDPMUNet
 
 from typing import Tuple, List
 import math
+import numpy as np
 import matplotlib.pyplot as plt
 from torchmetrics.image.fid import FrechetInceptionDistance
 
@@ -82,12 +83,11 @@ def precompute_diffusion_constants(betas: torch.Tensor) -> Tuple[torch.Tensor, t
 # ┌───────────────────────────────────────────────┐
 # │            EVALUATION FUNCTIONS               │
 # └───────────────────────────────────────────────┘
-def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
+def precompute_real_stats(dataloader: DataLoader, num_batches: int = 5):
     """
     Feeds real images into the FID metric to update the 'real' statistics.
+    NOTE: FID metric maintains state, so we don't reset - we accumulate across batches
     """
-    fid_metric.reset()
-    
     count = 0
     for x, _ in dataloader:
         x = x.to(DEVICE)
@@ -111,20 +111,20 @@ def precompute_real_stats(dataloader: DataLoader, num_batches: int = 10):
 
 def evaluate_fid(model: nn.Module,
                  betas: torch.Tensor,
-                 alphas: torch.Tensor,
                  alphas_cumprod: torch.Tensor,
-                 timesteps: List[int],
-                 num_batches: int = 10,
-                 batch_size: int = 128) -> float:
+                 num_diffusion_steps: int,
+                 num_sampling_steps: int = 50,
+                 num_batches: int = 5,
+                 batch_size: int = 64) -> float:
     """
     Generates fake images using DDPM reverse process and computes FID.
     
     Args:
         model (nn.Module): The trained denoising network
         betas (torch.Tensor): Beta schedule
-        alphas (torch.Tensor): Alpha values
         alphas_cumprod (torch.Tensor): Cumulative product of alphas
-        timesteps (List[int]): Timesteps to use for reverse process
+        num_diffusion_steps (int): Total number of diffusion steps (for indexing)
+        num_sampling_steps (int): Number of sampling steps (< num_diffusion_steps for speed)
         num_batches (int): Number of batches to generate
         batch_size (int): Batch size for generation
         
@@ -132,47 +132,49 @@ def evaluate_fid(model: nn.Module,
         float: FID score
     """
     model.eval()
+    
+    # Create sampling timesteps - use evenly spaced subset
+    sampling_steps = np.linspace(0, num_diffusion_steps - 1, num_sampling_steps, dtype=int)
 
     with torch.no_grad():
         for _ in range(num_batches):
             # Start with pure noise
             x_t = torch.randn(batch_size, 1, 28, 28).to(DEVICE)
             
-            # Reverse diffusion process
-            for t_idx in reversed(timesteps):
+            # Reverse diffusion process - use subset of timesteps
+            for step_idx in reversed(range(len(sampling_steps))):
+                t_idx = sampling_steps[step_idx]
                 t = torch.full((batch_size,), t_idx, dtype=torch.long, device=DEVICE)
                 
-                # Predict noise
-                predicted_noise = model(x_t, t.float())
+                # Predict noise using the model
+                predicted_noise = model(x_t, t)
                 
                 # Get diffusion parameters for this timestep
-                alpha_t = alphas[t_idx]
                 alpha_cumprod_t = alphas_cumprod[t_idx]
                 beta_t = betas[t_idx]
                 
-                if t_idx > 0:
-                    alpha_cumprod_prev = alphas_cumprod[t_idx - 1]
+                if step_idx > 0:
+                    alpha_cumprod_prev = alphas_cumprod[sampling_steps[step_idx - 1]]
                 else:
                     alpha_cumprod_prev = torch.tensor(1.0, device=DEVICE)
                 
-                # Predict x_0 from x_t
-                pred_x0 = (x_t - torch.sqrt(1 - alpha_cumprod_t) * predicted_noise) / torch.sqrt(alpha_cumprod_t)
-                pred_x0 = torch.clamp(pred_x0, -1, 1)
+                # Standard DDPM reverse process mean
+                alpha_t = 1.0 - beta_t
                 
-                # Compute mean of reverse distribution
-                coef1 = torch.sqrt(alpha_cumprod_prev) * beta_t / (1 - alpha_cumprod_t)
-                coef2 = torch.sqrt(alpha_t) * (1 - alpha_cumprod_prev) / (1 - alpha_cumprod_t)
-                mean = coef1 * pred_x0 + coef2 * x_t
+                mean = (1.0 / torch.sqrt(alpha_t)) * (
+                    x_t - (beta_t / torch.sqrt(1.0 - alpha_cumprod_t)) * predicted_noise
+                )
                 
-                # Add noise
-                if t_idx > 0:
-                    variance = (1 - alpha_cumprod_prev) / (1 - alpha_cumprod_t) * beta_t
+                # Add noise for non-final steps
+                if step_idx > 0:
+                    variance = (1.0 - alpha_cumprod_prev) / (1.0 - alpha_cumprod_t) * beta_t
+                    sigma = torch.sqrt(variance)
                     noise = torch.randn_like(x_t)
-                    x_t = mean + torch.sqrt(variance) * noise
+                    x_t = mean + sigma * noise
                 else:
                     x_t = mean
             
-            # Process Fake images
+            # Process Fake images: convert from [-1, 1] to [0, 1]
             fake_images = (x_t * 0.5 + 0.5).clamp(0, 1)
             fake_images = fake_images.repeat(1, 3, 1, 1)
             fake_images = F.interpolate(fake_images, size=(299, 299), mode='bilinear')
@@ -234,9 +236,18 @@ def train(
     # Init lists to accumulate loss history and FID Scores
     loss_history = []
     fid_scores = []
+
+    # Debug: Check diffusion constants
+    print("\nDiffusion constants sanity check:")
+    print(f"betas range: [{betas.min():.6f}, {betas.max():.6f}]")
+    print(f"alphas range: [{alphas.min():.6f}, {alphas.max():.6f}]")
+    print(f"alphas_cumprod range: [{alphas_cumprod.min():.6f}, {alphas_cumprod.max():.6f}]")
+    print(f"sqrt_alphas_cumprod_t range: [{sqrt_alphas_cumprod_t.min():.6f}, {sqrt_alphas_cumprod_t.max():.6f}]")
+    print(f"sqrt_one_minus_alphas_cumprod_t range: [{sqrt_one_minus_alphas_cumprod_t.min():.6f}, {sqrt_one_minus_alphas_cumprod_t.max():.6f}]")
     
-    # Evaluation timesteps (subset for faster FID computation)
-    eval_timesteps = list(range(0, num_diffusion_steps, num_diffusion_steps // 50))
+    if torch.isnan(betas).any() or torch.isnan(alphas).any() or torch.isnan(alphas_cumprod).any():
+        print("ERROR: NaN detected in diffusion constants!")
+        return model, loss_history, fid_scores
 
     # Iterate num_epochs times
     for epoch in tqdm(range(num_epochs)):
@@ -246,14 +257,25 @@ def train(
         steps = 0
 
         # For each minibatch in the dataloader
-        for x, _ in dataloader:
+        for batch_idx, (x, _) in enumerate(dataloader):
             # Load x on device
             x = x.to(DEVICE)                                    # (batch_size, 1, H, W)
             batch_size = x.shape[0]
 
+            # Debug first batch of first epoch
+            if epoch == 0 and batch_idx == 0:
+                print(f"\nFirst batch debug:")
+                print(f"Input x range: [{x.min():.4f}, {x.max():.4f}]")
+                print(f"Input x mean: {x.mean():.4f}, std: {x.std():.4f}")
+
             # Check for NaN in input
             if torch.isnan(x).any():
-                print("WARNING: NaN detected in input data!")
+                print(f"WARNING: NaN detected in input data at batch {batch_idx}!")
+                continue
+            
+            # Check for inf in input
+            if torch.isinf(x).any():
+                print(f"WARNING: Inf detected in input data at batch {batch_idx}!")
                 continue
 
             # Sample random timesteps for each sample in the batch
@@ -274,8 +296,8 @@ def train(
                 print(f"WARNING: NaN detected in x_t at timesteps {t}")
                 continue
 
-            # Predict noise using model
-            predicted_noise = model(x_t, t.float())
+            # Predict noise using model (pass timesteps as torch.long, not float)
+            predicted_noise = model(x_t, t)
 
             # Check for NaN in predictions
             if torch.isnan(predicted_noise).any():
@@ -320,22 +342,11 @@ def train(
         else:
             avg_loss = float('nan')
 
-        # Precompute FID Metrics for Real Data
-        precompute_real_stats(dataloader, num_batches=10)
-
-        # Compute FID Score
-        fid_score = evaluate_fid(model,
-                                 betas,
-                                 alphas,
-                                 alphas_cumprod,
-                                 eval_timesteps,
-                                 num_batches=10,
-                                 batch_size=128)
-
-        fid_scores.append(fid_score)
+        # Switch model back to training mode
+        model.train()
 
         # Logging for every epoch
-        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}, FID: {fid_score:.4f}")
+        tqdm.write(f"Epoch {epoch + 1}/{num_epochs}, Avg Loss: {avg_loss:.4f}")
 
     # Return trained model, loss history, and fid scores for each epoch
     return model, loss_history, fid_scores
@@ -374,7 +385,7 @@ def visualize_fid_trajectory(fid_scores: List[float]):
 if __name__ == '__main__':
 
     # Load MNIST Dataloader
-    mnist_dataloader = get_mnist_dataloader(batch_size=128)
+    mnist_dataloader = get_mnist_dataloader(batch_size=32)
     
     # Print Dataset Summary
     print(f"{'-' * 10} DATASET INFO {'-' * 10}\n")
@@ -383,7 +394,7 @@ if __name__ == '__main__':
     print(f"{'-' * 34}")
 
     # Init Model
-    model = ConsistencyUNet().to(DEVICE)
+    model = DDPMUNet().to(DEVICE)
 
     # Init Optimizer
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
@@ -393,18 +404,25 @@ if __name__ == '__main__':
         model,
         mnist_dataloader,
         optimizer,
-        num_epochs=10,
+        num_epochs=2,
         num_diffusion_steps=1000,
         schedule_type="linear"
     )
 
     # Visualize the Loss Trajectory
-    visualize_loss_trajectory(loss_history)
+    if loss_history:
+        visualize_loss_trajectory(loss_history)
 
     # Visualize the FID Trajectory
-    visualize_fid_trajectory(fid_scores)
+    if fid_scores:
+        visualize_fid_trajectory(fid_scores)
 
     # Save the Model weights
-    torch.save(trained_model.state_dict(), "trained_model_weights/ddpm_model.pth")
-
-    print("Training complete! Model saved to trained_model_weights/ddpm_model.pth")
+    try:
+        torch.save(trained_model.state_dict(), "trained_model_weights/ddpm_model.pth")
+        print("✓ Training complete! Model saved to trained_model_weights/ddpm_model.pth")
+    except Exception as e:
+        print(f"✗ Error saving model: {e}")
+        print("Attempting to save to current directory instead...")
+        torch.save(trained_model.state_dict(), "ddpm_model.pth")
+        print("✓ Model saved to ddpm_model.pth in current directory")
