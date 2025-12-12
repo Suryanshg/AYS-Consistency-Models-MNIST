@@ -189,22 +189,7 @@ class ConsistencyModel(nn.Module):
 
         # Sample 'num_steps' points evenly from the CDF (0 to 1)
         # We want to find sigmas that correspond to cumulative probability 0.2, 0.4, 0.6...
-        # target_probs = np.linspace(0, 1, num_steps + 1)
         target_probs = np.linspace(0, 1, num_steps)
-
-        # optimal_sigmas = []
-
-        # # Always include sigma_max
-        # optimal_sigmas.append(sigmas[0])
-
-        # # Find the intermediate steps
-        # for target in target_probs[1:-1]: # Skip 0 and 1
-        #     # Find index where CDF crosses the target
-        #     idx = np.searchsorted(cdf, target)
-        #     optimal_sigmas.append(sigmas[idx])
-
-        # # Always include sigma_min (epsilon)
-        # optimal_sigmas.append(sigmas[-1])
 
         # Use Linear Interpolation (Inverse CDF Sampling)
         # We ask: "At what exact sigma is the CDF = 0.2?"

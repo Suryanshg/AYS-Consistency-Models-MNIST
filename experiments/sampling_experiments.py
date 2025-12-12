@@ -7,7 +7,7 @@ import torch
 from cm_sampler import ConsistencyModel
 from datasets.mnist_dataloader import get_mnist_dataloader
 from experiments.experiment_helpers import make_z_t_grid, calculate_pca, calculate_diversity_scores, calculate_pca_diversity, calculate_point_correlations
-from visualizations.visualizations import schedule_length_plot, correlation_diversity_plot, plot_collage, plot_pca
+from visualizations.visualizations import schedule_length_plot, correlation_diversity_plot, plot_collage, plot_pca, plot_curvature
 
 
 def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False, deterministic=False):
@@ -150,6 +150,10 @@ if __name__ == '__main__':
     #print("Running AYS FID + Schedule Length experiment...")
     #fid_norms, fid_ays = ays_fid_experiment()
     #schedule_length_plot(fid_norms, fid_ays, labels=["FID Standard", "FID w/ AYS"])
+
+    print("Running AYS Curvature plot...")
+    schedule = cm_model.get_ays_schedule(5)
+    plot_curvature(cm_model.velocities, cm_model.sigmas, schedule)
 
     print("Running correlation dependence experiment...")
     evaluate_dependence(test_schedule, plot=True, deterministic=False)

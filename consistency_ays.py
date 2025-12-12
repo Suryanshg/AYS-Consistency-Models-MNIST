@@ -117,63 +117,6 @@ if __name__ == "__main__":
     print("="*40)
     print(f"[{formatted_schedule}]")
     print("="*40)
-    
-    # Create a Visualization for Velocity Curvature and the Optimized Steps
-    plt.figure(figsize=(12, 6))
-    
-    # Plot the Curvature (Blue Line)
-    plt.plot(scan_sigmas, velocities, label="Model Curvature (RMSE)", color='blue', linewidth=2)
-    
-    regular_sampling_schedule = [80.0, 40.0, 10.0, 2.0, 0.002]
-    # regular_sampling_schedule = [80.0, 40.0, 20.0, 10.0, 5.0, 2.5, 1.0, 0.1, 0.01, 0.002]
-
-    # Plot the Regular Steps (Black Dashed Lines)
-    # For each sigma in regular sampling schedule
-    for i, step_sigma in enumerate(regular_sampling_schedule):
-        if i == 0:
-            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5, label = "Regular Steps")
-        else:
-            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
-        
-        # Add a text label at the top of the line
-        # We place it slightly above the max velocity to keep it clean
-        plt.text(step_sigma, max(velocities) * -0.15, f"t_{i + 1}", fontsize=9, ha='center', va='bottom', rotation = 0)
-
-
-    # Plot the AYS Steps (Red Dashed Lines)
-    # For each sigma in optimal schedule
-    for i, step_sigma in enumerate(optimal_schedule):
-        if i == 0:
-            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label = "Optimized Steps")
-        else:
-            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
-        
-        # Add a text label at the top of the line
-        # We place it slightly above the max velocity to keep it clean
-        plt.text(step_sigma, max(velocities) * 1.05, f"t_{i + 1}'", fontsize=9, ha='center', va='bottom', rotation=0)
-
-    # Adding Log Scale
-    plt.xscale('log')
-
-    # Inverted X-axis: Noise (80.0) --> Clean (0.002)
-    plt.xlim(80, 0.002) 
-    
-    # Add Custom Ticks for readability
-    ticks = [80, 40, 10, 1, 0.1, 0.01, 0.002]
-    labels = ["80", "40", "10", "1", "0.1", "0.01", "0.002"]
-    plt.xticks(ticks, labels)
-    
-    # Add title, axis labels, legend and grid
-    plt.title(f"AYS Schedule: {N_STEPS} Steps optimized for Consistency Model", fontsize=14, y=1.1)
-    plt.xlabel("Sigma (Noise Level) - Log Scale", fontsize=12, labelpad=15)
-    plt.ylabel("RMSE (Pixel Shift Velocity)", fontsize=12)
-    plt.legend(loc='upper right')
-    plt.grid(True, which="both", linestyle=':', alpha=0.4)
-    
-    # Save the Visualization
-    plt.tight_layout()
-    plt.savefig('viz/ays_schedule_overlay.png')
-    print("Saved visualization to viz/ays_schedule_overlay.png")
 
     # Prepare the Optimized Sampling Schedule as a Tensor
     optimized_sampling_schedule = torch.tensor(optimal_schedule, device=DEVICE, dtype=torch.float32)
