@@ -16,6 +16,7 @@ class ConsistencyModel(nn.Module):
         super(ConsistencyModel, self).__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = ConsistencyUNet()
+        self.to(self.device)
         self.fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(self.device)
 
         # AYS Stuff
@@ -70,7 +71,7 @@ class ConsistencyModel(nn.Module):
         for t in sampling_schedule[1:]:
             if not deterministic:
                 z_t = torch.randn_like(x_hat)
-            z_t = x_hat + (math.sqrt((t ** 2) - (epsilon ** 2)) * z_t)
+            z_t = x_hat + (math.sqrt(max(0, (t ** 2) - (epsilon ** 2))) * z_t)
 
             t_tensor = t.repeat(image_dim[0])
             x_hat = self.model(z_t, t_tensor)
@@ -106,7 +107,7 @@ class ConsistencyModel(nn.Module):
         self.model.to(self.device)
 
     def save(self, path: str):
-        self.model.state_dict()
+        torch.save(self.model.state_dict(), f"weights/{path}")
 
     # ----------------------------------------------- AYS Integration --------------------------------------------------
     def _init_prediction_velocities(self, num_points=100, sigma_max=80.0, sigma_min=0.002):
@@ -189,22 +190,7 @@ class ConsistencyModel(nn.Module):
 
         # Sample 'num_steps' points evenly from the CDF (0 to 1)
         # We want to find sigmas that correspond to cumulative probability 0.2, 0.4, 0.6...
-        # target_probs = np.linspace(0, 1, num_steps + 1)
         target_probs = np.linspace(0, 1, num_steps)
-
-        # optimal_sigmas = []
-
-        # # Always include sigma_max
-        # optimal_sigmas.append(sigmas[0])
-
-        # # Find the intermediate steps
-        # for target in target_probs[1:-1]: # Skip 0 and 1
-        #     # Find index where CDF crosses the target
-        #     idx = np.searchsorted(cdf, target)
-        #     optimal_sigmas.append(sigmas[idx])
-
-        # # Always include sigma_min (epsilon)
-        # optimal_sigmas.append(sigmas[-1])
 
         # Use Linear Interpolation (Inverse CDF Sampling)
         # We ask: "At what exact sigma is the CDF = 0.2?"
