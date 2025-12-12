@@ -4,13 +4,11 @@ import time
 import numpy as np
 import torch
 
-from cm_sampler import ConsistencyModel
-from datasets.mnist_dataloader import get_mnist_dataloader
 from experiments.experiment_helpers import make_z_t_grid, calculate_pca, calculate_diversity_scores, calculate_pca_diversity, calculate_point_correlations
-from visualizations.visualizations import schedule_length_plot, correlation_diversity_plot, plot_collage, plot_pca, plot_curvature
+from visualizations.visualizations import plot_pca
 
 
-def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False, deterministic=False):
+def evaluate_dependence(cm_model, schedule, num_z_t=10, num_points=5, plot=False, deterministic=False):
     # Step 1: Generate an experiment grid
     z_t_grid = make_z_t_grid(N=num_z_t, experiment_cluster_size=num_points, device=cm_model.device)
 
@@ -42,7 +40,7 @@ def evaluate_dependence(schedule, num_z_t=10, num_points=5, plot=False, determin
     return avg_corr, div_score, pca_div_score
 
 
-def dependence_experiment(optimize_by="div_score", N_points=10, n_candidates=7):
+def dependence_experiment(cm_model, optimize_by="div_score", N_points=10, n_candidates=7):
     schedule = [80.0]
     history = []  # records: [{"N": int, "candidate_idx": int, "avg_corr":float, "div_score":float, "pca_div_score":float}]
 
@@ -60,7 +58,7 @@ def dependence_experiment(optimize_by="div_score", N_points=10, n_candidates=7):
         # Evaluate candidates and store metrics with candidate index
         step_results = []
         for idx, d in enumerate(candidate_distances):
-            avg_corr, div_score, pca_div_score = evaluate_dependence(sorted(schedule + [d], reverse=True))
+            avg_corr, div_score, pca_div_score = evaluate_dependence(cm_model, sorted(schedule + [d], reverse=True))
             step_results.append({
                 "N": len(schedule) + 1,
                 "candidate": d,
@@ -114,7 +112,7 @@ def schedule_length_experiment(max_points=10):
 
     return fid_scores, time_deltas
 
-def ays_fid_experiment(max_points=10):
+def ays_fid_experiment(cm_model, max_points=10):
     # Compute FID for different schedule lengths using AYS now
     non_ays_schedule = [80.]
 
@@ -134,30 +132,3 @@ def ays_fid_experiment(max_points=10):
         fid_ays_scores.append(fid_ays)
 
     return fid_normal_scores, fid_ays_scores
-
-
-if __name__ == '__main__':
-    print("Loading CM Model...")
-    cm_model = ConsistencyModel()
-    cm_model.initialize_FID(get_mnist_dataloader(batch_size=64), num_real_batches=64)
-    cm_model.load("online_cm_config6.pth")
-
-    print("Sampling some example images...")
-    test_schedule = [80., 40., 30., 5., 0.002]
-    #results = cm_model.sample(n_samples=25, schedule=test_schedule)
-    #plot_collage(results)
-
-    #print("Running AYS FID + Schedule Length experiment...")
-    #fid_norms, fid_ays = ays_fid_experiment()
-    #schedule_length_plot(fid_norms, fid_ays, labels=["FID Standard", "FID w/ AYS"])
-
-    print("Running AYS Curvature plot...")
-    schedule = cm_model.get_ays_schedule(5)
-    plot_curvature(cm_model.velocities, cm_model.sigmas, schedule)
-
-    print("Running correlation dependence experiment...")
-    evaluate_dependence(test_schedule, plot=True, deterministic=False)
-    dependence_experiment(optimize_by="random")
-    evaluate_dependence(test_schedule, plot=True, deterministic=True)
-    history, _ = dependence_experiment(optimize_by="random")
-    correlation_diversity_plot(history)

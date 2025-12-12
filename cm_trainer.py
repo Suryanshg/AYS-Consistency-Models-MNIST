@@ -8,7 +8,6 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from cm_sampler import ConsistencyModel
-from datasets.mnist_dataloader import get_mnist_dataloader
 from karras import get_karras_N, get_karras_time_schedule
 
 

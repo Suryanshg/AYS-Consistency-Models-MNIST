@@ -1,3 +1,5 @@
+from typing import List
+
 import numpy as np
 import pandas as pd
 import torch
@@ -141,7 +143,7 @@ def correlation_diversity_plot(data):
     plt.savefig(f"{VIZ_PATH}/Diversity_SDE.png")
     plt.show()
 
-def plot_collage(images, collage_dim=(5, 5)):
+def plot_collage(images, title="1", collage_dim=(5, 5)):
     rows, cols = collage_dim
     n = rows * cols
 
@@ -162,7 +164,7 @@ def plot_collage(images, collage_dim=(5, 5)):
         ax.axis("off")
 
     plt.tight_layout()
-    plt.savefig(f"{VIZ_PATH}/SAMPLE_{collage_dim[0]}x{collage_dim[1]}.png")
+    plt.savefig(f"{VIZ_PATH}/SAMPLE_{collage_dim[0]}x{collage_dim[1]}_{title}.png")
     plt.show()
 
 def plot_curvature(velocities, sigmas, optimal_schedule=None):
@@ -220,3 +222,26 @@ def plot_curvature(velocities, sigmas, optimal_schedule=None):
     # Save the Visualization
     plt.tight_layout()
     plt.savefig(f'{VIZ_PATH}/ays_schedule_overlay.png')
+    plt.show()
+
+# ----- TRAINING VIZ -----
+def visualize_loss_trajectory(loss_history: List[float]):
+    plt.figure(figsize=(6, 4))
+    plt.plot(loss_history, color="blue")
+    plt.xlabel("Epochs")
+    plt.ylabel("MSE Loss")
+    plt.title("Consistency Model: Loss Trajectory")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.savefig(f"{VIZ_PATH}/loss_trajectory.png")
+    plt.show()
+
+
+def visualize_fid_trajectory(fid_scores: List[float]):
+    plt.figure(figsize=(6, 4))
+    plt.plot(fid_scores, color="blue")
+    plt.xlabel("Epochs")
+    plt.ylabel("FID")
+    plt.title("Consistency Model: FID")
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.savefig(f"{VIZ_PATH}/fid_trajectory.png")
+    plt.show()
