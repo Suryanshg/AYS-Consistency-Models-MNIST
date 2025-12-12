@@ -32,7 +32,8 @@ class ConsistencyUNet(nn.Module):
         self.dconv_down2 = double_conv(64, 128)
         self.dconv_down3 = double_conv(128, 256)
 
-        self.maxpool = nn.MaxPool2d(2)
+        # self.maxpool = nn.MaxPool2d(2)
+        self.maxpool = nn.AvgPool2d(2)
         # TODO: Look into using mode = 'nearest' later
         self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
 
@@ -75,6 +76,7 @@ class ConsistencyUNet(nn.Module):
 
         # Scale input
         x_scaled = x * c_in
+        # x_scaled = x
 
         x_in = torch.cat(
             [x_scaled, time_embedding.unsqueeze(-1).unsqueeze(-1).expand(x.size(0), -1, x.size(2), x.size(3))],
@@ -167,11 +169,10 @@ def double_conv(in_channels: int, out_channels: int) -> Sequential:
     return nn.Sequential(
         nn.Conv2d(in_channels, out_channels, 3, padding=1),     # (N, out_channels, H, W)
         nn.GroupNorm(num_groups=32, num_channels=out_channels),
-        # nn.ReLU(inplace=True),
         nn.SiLU(),
+
         nn.Conv2d(out_channels, out_channels, 3, padding=1),    # (N, out_channels, H, W)
         nn.GroupNorm(num_groups=32, num_channels=out_channels),
-        # nn.ReLU(inplace=True)
         nn.SiLU()
     )
 
@@ -180,8 +181,8 @@ if __name__ == '__main__':
     cm = ConsistencyUNet()
 
     input_data = (
-        torch.randn(1, 1, 28, 28),      # image
-        torch.rand(1,).clamp_min(1e-6),  # time > 0 to avoid log(0)
+        torch.randn(1, 1, 28, 28),      
+        torch.rand(1,).clamp_min(1e-6),
     )
 
     summary(cm, input_data=input_data)

@@ -1,13 +1,15 @@
 import torch
 import torch.nn as nn
 import math
+
 # from models.ConsistencyUNet import ConsistencyUNet
 from models.ConsistencyUNet2 import ConsistencyUNet
+# from models.ConsistencyUNet3 import ConsistencyUNet
+
 import matplotlib.pyplot as plt
 from datasets.mnist_dataloader import get_mnist_dataloader
 from torchmetrics.image.fid import FrechetInceptionDistance
 import torch.nn.functional as F
-
 
 def sample(
         online_model: nn.Module,
@@ -51,12 +53,11 @@ def sample(
     return x_hat
 
 
-def calculate_test_fid(model, dataloader):
+def calculate_test_fid(model, dataloader, sampling_schedule):
     print("Calculating Test FID on 10k Images...")
     
     # Initialize High-Res Metric
-    # We need 2048 for standard comparability
-    fid_2048 = FrechetInceptionDistance(feature=2048, normalize=True).to(DEVICE)
+    fid_2048 = FrechetInceptionDistance(feature=64, normalize=True).to(DEVICE)
     
     # Feed 10,000 REAL Images
     # We iterate through the dataloader until we have 10k images
@@ -77,11 +78,10 @@ def calculate_test_fid(model, dataloader):
     model.eval()
     fake_count = 0
     batch_size = 128
-    schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 0.002], device=DEVICE)
     
     with torch.no_grad():
         while fake_count <= 10000:
-            fake = sample(model, schedule, DEVICE, shape=(batch_size, 1, 28, 28))
+            fake = sample(model, sampling_schedule, DEVICE, shape=(batch_size, 1, 28, 28))
             fake = fake.repeat(1, 3, 1, 1)
             fake = F.interpolate(fake, size=(299, 299), mode="bilinear")
             fid_2048.update(fake, real=False)
@@ -101,42 +101,42 @@ if __name__ == '__main__':
     # print(f"Using device: {DEVICE}")
 
     # Init MNIST Dataloader
-    mnist_dataloader = get_mnist_dataloader(batch_size=25)
+    mnist_dataloader = get_mnist_dataloader(batch_size=128)
 
     # Init Models
     trained_online_model = ConsistencyUNet().to(DEVICE)
     trained_ema_model = ConsistencyUNet().to(DEVICE)
 
     # Load Weights into the Consistency Models
-    trained_online_model.load_state_dict(torch.load("trained_model_weights/online_cm.pth", map_location=DEVICE))
-    trained_ema_model.load_state_dict(torch.load("trained_model_weights/ema_cm.pth", map_location=DEVICE))
+    trained_online_model.load_state_dict(torch.load("weights/online_cm_config6.pth", map_location=DEVICE))
+    #trained_ema_model.load_state_dict(torch.load("weights/ema_cm_config6.pth", map_location=DEVICE))
+
 
     # Define Sampling Schedule
-    sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 0.002], device=DEVICE)
-    # sampling_schedule = torch.tensor([40.0], device=DEVICE)
+    sampling_schedule = torch.tensor([80.0, 40.0, 10.0, 5.0, 0.002], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 2.5, 1.0, 0.1, 0.01, 0.002], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0000, 4.4465, 0.7459, 0.2391, 0.0021], device=DEVICE)
+    # sampling_schedule = torch.tensor([80.0], device=DEVICE)
+
 
     # Perform Sampling using Online Model
     trained_online_model.eval()
     with torch.no_grad():
-
         sampled_imgs_tensor = sample(trained_online_model, sampling_schedule, device=DEVICE)        # (N, 1, H, W)
-    
     sampled_imgs_np = sampled_imgs_tensor.view(25, 28, 28).cpu().detach().numpy()
 
     # Plot all 25 imgs in a 5 by 5 collage
-    # Plot the images
-    fig, axes = plt.subplots(5, 5, figsize=(8, 6))
+    fig, axes = plt.subplots(1, 10, figsize=(10, 2))
+    # fig, axes = plt.subplots(1, 10)
     for i, ax in enumerate(axes.flatten()):
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
     plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('viz/generation.png')
+    plt.savefig('visualizations/images/generation_config6_5steps.png')
     print("Saved a collage of 25 Generated Images")
 
     # Calulcate test FID on 10k images
-    calculate_test_fid(trained_online_model, mnist_dataloader)
-
-
+    calculate_test_fid(trained_online_model, mnist_dataloader, sampling_schedule)
 
     # TODO: Visualize the generation quality (FID score) vs number of sampling steps
