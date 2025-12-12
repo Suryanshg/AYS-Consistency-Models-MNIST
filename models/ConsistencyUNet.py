@@ -179,10 +179,11 @@ def double_conv(in_channels: int, out_channels: int) -> Sequential:
 
 if __name__ == '__main__':
     cm = ConsistencyUNet()
+    print(cm)
 
-    input_data = (
-        torch.randn(1, 1, 28, 28),      
-        torch.rand(1,).clamp_min(1e-6),
-    )
+    # input_data = (
+    #     torch.randn(1, 1, 28, 28),      
+    #     torch.rand(1,).clamp_min(1e-6),
+    # )
 
-    summary(cm, input_data=input_data)
+    # summary(cm, input_data=input_data)

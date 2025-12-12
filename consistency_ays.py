@@ -64,7 +64,6 @@ def get_prediction_velocity(model, device, num_points=100, sigma_max=80.0, sigma
             velocities.append(velocity)
             
     # Return Velocities and the sigma values
-    # return np.array(velocities), sigmas[:-1] 
     return np.array(velocities), sigmas[:-1]
 
 
@@ -166,7 +165,7 @@ if __name__ == "__main__":
     # Add title, axis labels, legend and grid
     plt.title(f"AYS Schedule: {N_STEPS} Steps optimized for Consistency Model", fontsize=14, y=1.1)
     plt.xlabel("Sigma (Noise Level) - Log Scale", fontsize=12, labelpad=15)
-    plt.ylabel("RMSE (Pixel Shift Velocity)", fontsize=12)
+    plt.ylabel("Pixel Wise L2 Distance", fontsize=12)
     plt.legend(loc='upper right')
     plt.grid(True, which="both", linestyle=':', alpha=0.4)
     
@@ -174,6 +173,77 @@ if __name__ == "__main__":
     plt.tight_layout()
     plt.savefig('viz/ays_schedule_overlay.png')
     print("Saved visualization to viz/ays_schedule_overlay.png")
+
+
+
+    # Create CDF Visualization
+    plt.figure(figsize=(12, 6))
+    
+    # Compute CDF for plotting
+    pdf = velocities / np.sum(velocities)
+    cdf = np.cumsum(pdf)
+    
+    # Plot the CDF curve
+    plt.plot(scan_sigmas, cdf, label="Cumulative Distribution Function", color='blue', linewidth=2)
+    
+    # Plot Regular Sampling Schedule timesteps
+    for i, step_sigma in enumerate(regular_sampling_schedule):
+        # Find corresponding CDF value for this sigma
+        cdf_value = np.interp(step_sigma, scan_sigmas, cdf)
+        
+        if i == 0:
+            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5, label="Regular Steps")
+        else:
+            plt.axvline(x=step_sigma, color='black', linestyle='--', alpha=0.8, linewidth=1.5)
+        
+        # Add point on CDF curve
+        plt.scatter(step_sigma, cdf_value, color='black', s=100, zorder=5)
+        
+        # Add text label
+        plt.text(step_sigma, -0.05, f"t_{i + 1}", fontsize=9, ha='center', va='top', rotation=0)
+    
+    # Plot Optimized AYS timesteps
+    for i, step_sigma in enumerate(optimal_schedule):
+        # Find corresponding CDF value for this sigma
+        cdf_value = np.interp(step_sigma, scan_sigmas, cdf)
+        
+        if i == 0:
+            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5, label="Optimized Steps")
+        else:
+            plt.axvline(x=step_sigma, color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+        
+        # Add point on CDF curve
+        plt.scatter(step_sigma, cdf_value, color='red', s=100, zorder=5)
+        
+        # Add text label
+        plt.text(step_sigma, 1, f"t_{i + 1}'", fontsize=9, ha='center', va='bottom', rotation=0)
+    
+    # Log scale on x-axis
+    plt.xscale('log')
+    
+    # Inverted X-axis: Noise (80.0) --> Clean (0.002)
+    plt.xlim(80, 0.002)
+    
+    # Set y-axis limits for CDF (0 to 1)
+    plt.ylim(0, 1)
+    
+    # Add Custom Ticks for readability
+    ticks = [80, 40, 10, 1, 0.1, 0.01, 0.002]
+    labels = ["80", "40", "10", "1", "0.1", "0.01", "0.002"]
+    plt.xticks(ticks, labels)
+    
+    # Add title, axis labels, legend and grid
+    plt.title(f"CDF of Model Curvature with Sampling Schedules ({N_STEPS} Steps)", fontsize=14, y=1.05)
+    plt.xlabel("Sigma (Noise Level) - Log Scale", fontsize=12, labelpad=15)
+    plt.ylabel("Cumulative Distribution Function", fontsize=12)
+    plt.legend(loc='upper left')
+    plt.grid(True, which="both", linestyle=':', alpha=0.4)
+    
+    # Save the CDF Visualization
+    plt.tight_layout()
+    plt.savefig('viz/ays_cdf_comparison.png')
+    print("Saved CDF visualization to viz/ays_cdf_comparison.png")
+
 
     # Prepare the Optimized Sampling Schedule as a Tensor
     optimized_sampling_schedule = torch.tensor(optimal_schedule, device=DEVICE, dtype=torch.float32)
@@ -190,6 +260,6 @@ if __name__ == "__main__":
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
-    plt.suptitle(f"25 Generated Digits (CM + AYS)", fontsize=20)
+    plt.suptitle(f"Generated Digits (CM + AYS)", fontsize=20)
     plt.savefig('viz/generation_config6_optim_5steps.png')
     print("Saved a collage of 25 Generated Images using Optimized Sampling Schedule")

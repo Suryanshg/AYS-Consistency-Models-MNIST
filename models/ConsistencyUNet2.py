@@ -148,10 +148,14 @@ def sinusoidal_embedding(times: torch.Tensor, dim: int) -> torch.Tensor:
 
 if __name__ == '__main__':
     cm = ConsistencyUNet()
+    print(cm)
 
-    input_data = (
-        torch.randn(1, 1, 28, 28),      # image
-        torch.rand(1,).clamp_min(1e-6),  # time > 0 to avoid log(0)
-    )
+    # input_data = (
+    #     torch.randn(1, 1, 28, 28),      # image
+    #     torch.rand(1,).clamp_min(1e-6),  # time > 0 to avoid log(0)
+    # )
 
-    summary(cm, input_data=input_data)
+    # summary(cm, input_data=input_data)
+
+    # num_params = sum(p.numel() for p in cm.parameters() if p.requires_grad)
+    # print(f"Num of Params: {num_params}")

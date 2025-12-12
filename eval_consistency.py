@@ -135,7 +135,7 @@ if __name__ == '__main__':
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
-    plt.suptitle(f"25 Generated Digits (CM)", fontsize=20)
+    plt.suptitle(f"Generated Digits (CM)", fontsize=20)
     plt.savefig('viz/generation_config6_5steps.png')
     print("Saved a collage of 25 Generated Images")
 
