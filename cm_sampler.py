@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from torchmetrics.image import FrechetInceptionDistance
 
-from models.ConsistencyUNet3 import ConsistencyUNet
+from models.ConsistencyUNet2 import ConsistencyUNet
 
 
 class ConsistencyModel(nn.Module):
@@ -16,6 +16,7 @@ class ConsistencyModel(nn.Module):
         super(ConsistencyModel, self).__init__()
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.model = ConsistencyUNet()
+        self.to(self.device)
         self.fid_metric = FrechetInceptionDistance(feature = 64, normalize=True).to(self.device)
 
         # AYS Stuff
@@ -70,7 +71,7 @@ class ConsistencyModel(nn.Module):
         for t in sampling_schedule[1:]:
             if not deterministic:
                 z_t = torch.randn_like(x_hat)
-            z_t = x_hat + (math.sqrt((t ** 2) - (epsilon ** 2)) * z_t)
+            z_t = x_hat + (math.sqrt(max(0, (t ** 2) - (epsilon ** 2))) * z_t)
 
             t_tensor = t.repeat(image_dim[0])
             x_hat = self.model(z_t, t_tensor)
@@ -106,7 +107,7 @@ class ConsistencyModel(nn.Module):
         self.model.to(self.device)
 
     def save(self, path: str):
-        self.model.state_dict()
+        torch.save(self.model.state_dict(), f"weights/{path}")
 
     # ----------------------------------------------- AYS Integration --------------------------------------------------
     def _init_prediction_velocities(self, num_points=100, sigma_max=80.0, sigma_min=0.002):

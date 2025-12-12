@@ -4,6 +4,8 @@ import torch
 from matplotlib import pyplot as plt
 import seaborn as sns
 
+VIZ_PATH = "visualizations/images"
+
 # Visualization of PCA on 2D Grid
 def plot_pca(pca_results, num_z_t, num_points, deterministic):
 
@@ -34,6 +36,11 @@ def plot_pca(pca_results, num_z_t, num_points, deterministic):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
+
+    if deterministic:
+        plt.savefig(f"{VIZ_PATH}/PCAClustering_ODE.png")
+    else:
+        plt.savefig(f"{VIZ_PATH}/PCAClustering_SDE.png")
     plt.show()
 
 
@@ -83,6 +90,7 @@ def schedule_length_plot(*fid_lists, labels=None, offset=2):
     plt.title("FID vs Schedule Length (N)")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    plt.savefig(f"{VIZ_PATH}/FID_vs_N.png")
     plt.show()
 
 def correlation_diversity_plot(data):
@@ -111,6 +119,7 @@ def correlation_diversity_plot(data):
         plt.ylim((0, 1))
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    plt.savefig(f"{VIZ_PATH}/Correlation_SDE.png")
     plt.show()
 
     # ----------------------------
@@ -129,6 +138,7 @@ def correlation_diversity_plot(data):
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
+    plt.savefig(f"{VIZ_PATH}/Diversity_SDE.png")
     plt.show()
 
 def plot_collage(images, collage_dim=(5, 5)):
@@ -152,6 +162,7 @@ def plot_collage(images, collage_dim=(5, 5)):
         ax.axis("off")
 
     plt.tight_layout()
+    plt.savefig(f"{VIZ_PATH}/SAMPLE_{collage_dim[0]}x{collage_dim[1]}.png")
     plt.show()
 
 def plot_curvature(velocities, sigmas, optimal_schedule=None):
@@ -208,5 +219,4 @@ def plot_curvature(velocities, sigmas, optimal_schedule=None):
 
     # Save the Visualization
     plt.tight_layout()
-    plt.savefig('visualizations/images/ays_schedule_overlay.png')
-    print("Saved visualization to visualizations/images/ays_schedule_overlay.png")
+    plt.savefig(f'{VIZ_PATH}/ays_schedule_overlay.png')
