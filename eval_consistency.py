@@ -113,7 +113,7 @@ if __name__ == '__main__':
 
 
     # Define Sampling Schedule
-    sampling_schedule = torch.tensor([80.0, 40.0, 10.0, 5.0, 0.002], device=DEVICE)
+    sampling_schedule = torch.tensor([80.0, 40.0, 10.0, 2.0, 0.002], device=DEVICE)
     # sampling_schedule = torch.tensor([80.0, 40.0, 20.0, 10.0, 5.0, 2.5, 1.0, 0.1, 0.01, 0.002], device=DEVICE)
     # sampling_schedule = torch.tensor([80.0000, 4.4465, 0.7459, 0.2391, 0.0021], device=DEVICE)
     # sampling_schedule = torch.tensor([80.0], device=DEVICE)
@@ -132,8 +132,8 @@ if __name__ == '__main__':
         ax.imshow(sampled_imgs_np[i], cmap='gray')
         ax.axis('off')
 
-    plt.suptitle(f"25 Generated Digits", fontsize=20)
-    plt.savefig('visualizations/images/generation_config6_5steps.png')
+    plt.suptitle(f"25 Generated Digits (CM)", fontsize=20)
+    plt.savefig('viz/generation_config6_5steps.png')
     print("Saved a collage of 25 Generated Images")
 
     # Calulcate test FID on 10k images
