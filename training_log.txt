@@ -1,0 +1,16 @@
+/home/adityapat/gen_ai/genai_final/CS-552-Generative-AI-Final-Project/.venv/lib/python3.12/site-packages/torch/cuda/__init__.py:182: UserWarning: CUDA initialization: CUDA unknown error - this may be due to an incorrectly set up environment, e.g. changing env variable CUDA_VISIBLE_DEVICES after program start. Setting the available devices to be zero. (Triggered internally at /pytorch/c10/cuda/CUDAFunctions.cpp:119.)
+  return torch._C._cuda_getDeviceCount() > 0
+Using device: cpu
+---------- DATASET INFO ----------
+
+Dataset length: 60000
+X (Image) shape: torch.Size([1, 28, 28])
+----------------------------------
+
+Diffusion constants sanity check:
+betas range: [0.000100, 0.020000]
+alphas range: [0.980000, 0.999900]
+alphas_cumprod range: [0.000040, 0.999900]
+sqrt_alphas_cumprod_t range: [0.006353, 0.999950]
+sqrt_one_minus_alphas_cumprod_t range: [0.010001, 0.999980]
+  0%|          | 0/5 [00:00<?, ?it/s]
