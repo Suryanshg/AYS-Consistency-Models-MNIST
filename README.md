@@ -1,4 +1,4 @@
-# CS-552-Generative-AI-Final-Project
+# AYS-Consistency-Models-MNIST
 Repository for Final Project for the Generative AI Class at WPI
 
 ## Setup Instructions
